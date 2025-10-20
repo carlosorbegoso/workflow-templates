@@ -13,13 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docker-image: ${{ steps.docker-image.outputs.full-image }}
+    timeout-minutes: 30
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Download artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
+
+      - name: Validate Dockerfile
+        run: |
+          if [ ! -f "src/main/docker/Dockerfile.native" ]; then
+            echo "Error: Dockerfile.native no encontrado"
+            exit 1
+          fi
 
       - name: Extract Docker image name
         id: docker-image
@@ -57,6 +65,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Docker image pushed
+      - name: Docker image info
         run: |
-          echo "✅ Imagen Docker pusheada: ${{ steps.docker-image.outputs.full-image }}"
+          echo "Imagen: ${{ steps.docker-image.outputs.full-image }}"
+          echo "Hub: https://hub.docker.com/r/${{ steps.docker-image.outputs.image-name }}"
