@@ -13,12 +13,6 @@ on:
         required: true
       DEPLOY_PATH:
         required: true
-      DB_JDBC_URL:
-        required: false
-      DB_USERNAME:
-        required: false
-      DB_PASSWORD:
-        required: false
 
 jobs:
   deploy:
@@ -70,9 +64,6 @@ jobs:
           DEPLOY_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           DOCKER_IMAGE: ${{ steps.project-info.outputs.image-name }}
-          DB_JDBC_URL: ${{ secrets.DB_JDBC_URL }}
-          DB_USERNAME: ${{ secrets.DB_USERNAME }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
           mkdir -p ~/.ssh
           echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
@@ -87,27 +78,15 @@ jobs:
           
           DEPLOY_PATH=$DEPLOY_PATH
           DOCKER_IMAGE=$DOCKER_IMAGE
-          DB_JDBC_URL=$DB_JDBC_URL
-          DB_USERNAME=$DB_USERNAME
-          DB_PASSWORD=$DB_PASSWORD
           APP_NAME=$(basename $DEPLOY_PATH)
           
-          echo "Creando estructura de directorios..."
           mkdir -p $DEPLOY_PATH
           chmod 755 $DEPLOY_PATH
           cd $DEPLOY_PATH
           
-          echo "Creando archivo .env..."
-          if [ ! -f .env ]; then
-            cat > .env << 'EOF'
-          DB_JDBC_URL=$DB_JDBC_URL
-          DB_USERNAME=$DB_USERNAME
-          DB_PASSWORD=$DB_PASSWORD
-          EOF
-            chmod 600 .env
-          fi
+          export DOCKER_IMAGE=$DOCKER_IMAGE
+          export APP_NAME=$APP_NAME
           
-          echo "Iniciando deploy de $APP_NAME..."
           bash /tmp/deploy-scripts/deploy.sh
           SETUP
 
