@@ -3,6 +3,8 @@ name: Deploy to Server
 on:
   workflow_call:
     secrets:
+      DOCKER_USERNAME:
+        required: true
       SSH_HOST:
         required: true
       SSH_USER:
@@ -15,12 +17,36 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     
     steps:
+      - name: Validate secrets
+        run: |
+          if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
+            echo "Error: DOCKER_USERNAME no configurado"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_HOST }}" ]; then
+            echo "Error: SSH_HOST no configurado"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_USER }}" ]; then
+            echo "Error: SSH_USER no configurado"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "Error: SSH_PRIVATE_KEY no configurado"
+            exit 1
+          fi
+          if [ -z "${{ secrets.DEPLOY_PATH }}" ]; then
+            echo "Error: DEPLOY_PATH no configurado"
+            exit 1
+          fi
+
       - name: Checkout templates
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/workflow-templates
+          repository: carlosorbegoso/workflow-templates
           path: templates
 
       - name: Checkout project
@@ -32,9 +58,8 @@ jobs:
         id: project-info
         run: |
           PROJECT_NAME=$(basename ${{ github.repository }})
-          IMAGE_NAME="${{ secrets.DOCKER_USERNAME }}/${PROJECT_NAME}"
           echo "project-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "image-name=docker.io/$IMAGE_NAME:latest" >> $GITHUB_OUTPUT
+          echo "image-name=docker.io/${{ secrets.DOCKER_USERNAME }}/${PROJECT_NAME}:latest" >> $GITHUB_OUTPUT
 
       - name: Deploy to server
         env:
@@ -49,10 +74,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
           
-          # Copiar scripts al servidor
           scp -i ~/.ssh/deploy_key -r templates/scripts $DEPLOY_USER@$DEPLOY_HOST:/tmp/deploy-scripts/
-          
-          # Copiar docker-compose.yml del proyecto al servidor
           scp -i ~/.ssh/deploy_key project/docker-compose.yml $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/
           
           ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'DEPLOY'
@@ -62,16 +84,53 @@ jobs:
           DOCKER_IMAGE=$DOCKER_IMAGE
           APP_NAME=$(basename $DEPLOY_PATH)
           
-          echo "📦 Deployando $APP_NAME..."
-          
-          # Crear directorio si no existe
           mkdir -p $DEPLOY_PATH
           cd $DEPLOY_PATH
           
-          # Ejecutar script de deploy
           bash /tmp/deploy-scripts/deploy.sh
           DEPLOY
 
-      - name: Deployment completed
+      - name: Health check
+        env:
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          echo "✅ Deployment completado exitosamente"
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          
+          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'HEALTH'
+          set -e
+          
+          DEPLOY_PATH=$DEPLOY_PATH
+          APP_NAME=$(basename $DEPLOY_PATH)
+          
+          echo "Verificando salud de $APP_NAME..."
+          
+          for i in {1..30}; do
+            if docker-compose -f $DEPLOY_PATH/docker-compose.yml ps | grep -q "Up"; then
+              echo "Aplicacion esta saludable"
+              exit 0
+            fi
+            
+            echo "Intento $i/30..."
+            sleep 2
+          done
+          
+          echo "Error: Aplicacion no esta saludable"
+          docker-compose -f $DEPLOY_PATH/docker-compose.yml logs
+          exit 1
+          HEALTH
+
+      - name: Deployment status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "Deployment exitoso"
+          else
+            echo "Deployment fallo"
+            exit 1
+          fi
