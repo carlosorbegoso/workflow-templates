@@ -2,12 +2,6 @@ name: Quarkus Native Build & Deploy
 
 on:
   workflow_call:
-    inputs:
-      app-name:
-        description: 'Nombre de la aplicación'
-        required: false
-        type: string
-        default: 'quarkus-app'
     secrets:
       DOCKER_USERNAME:
         required: true
