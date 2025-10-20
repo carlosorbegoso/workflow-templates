@@ -1,0 +1,37 @@
+name: Quarkus Native Build & Deploy
+
+on:
+  workflow_call:
+    secrets:
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_PASSWORD:
+        required: true
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_PATH:
+        required: true
+
+jobs:
+  build:
+    uses: ${{ github.repository_owner }}/workflow-templates/.github/workflows/build.yml@main
+
+  push:
+    needs: build
+    uses: ${{ github.repository_owner }}/workflow-templates/.github/workflows/push.yml@main
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  deploy:
+    needs: push
+    uses: ${{ github.repository_owner }}/workflow-templates/.github/workflows/deploy.yml@main
+    secrets:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

@@ -1,0 +1,77 @@
+name: Deploy to Server
+
+on:
+  workflow_call:
+    secrets:
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_PATH:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout templates
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/workflow-templates
+          path: templates
+
+      - name: Checkout project
+        uses: actions/checkout@v4
+        with:
+          path: project
+
+      - name: Extract project info
+        id: project-info
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          IMAGE_NAME="${{ secrets.DOCKER_USERNAME }}/${PROJECT_NAME}"
+          echo "project-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          echo "image-name=docker.io/$IMAGE_NAME:latest" >> $GITHUB_OUTPUT
+
+      - name: Deploy to server
+        env:
+          DEPLOY_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DOCKER_IMAGE: ${{ steps.project-info.outputs.image-name }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # Copiar scripts al servidor
+          scp -i ~/.ssh/deploy_key -r templates/scripts $DEPLOY_USER@$DEPLOY_HOST:/tmp/deploy-scripts/
+          
+          # Copiar docker-compose.yml del proyecto al servidor
+          scp -i ~/.ssh/deploy_key project/docker-compose.yml $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/
+          
+          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'DEPLOY'
+          set -e
+          
+          DEPLOY_PATH=$DEPLOY_PATH
+          DOCKER_IMAGE=$DOCKER_IMAGE
+          APP_NAME=$(basename $DEPLOY_PATH)
+          
+          echo "📦 Deployando $APP_NAME..."
+          
+          # Crear directorio si no existe
+          mkdir -p $DEPLOY_PATH
+          cd $DEPLOY_PATH
+          
+          # Ejecutar script de deploy
+          bash /tmp/deploy-scripts/deploy.sh
+          DEPLOY
+
+      - name: Deployment completed
+        run: |
+          echo "✅ Deployment completado exitosamente"

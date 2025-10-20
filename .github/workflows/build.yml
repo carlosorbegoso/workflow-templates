@@ -1,0 +1,70 @@
+name: Build Quarkus Native Image
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.build-info.outputs.artifact-name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle
+
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No pom.xml o build.gradle encontrado"
+            exit 1
+          fi
+
+      - name: Build with Maven
+        if: steps.build-tool.outputs.tool == 'maven'
+        run: |
+          ./mvnw clean package -Pnative -DskipTests
+
+      - name: Build with Gradle
+        if: steps.build-tool.outputs.tool == 'gradle'
+        run: |
+          ./gradlew clean build -Dquarkus.package.type=native -x test
+
+      - name: Extract build info
+        id: build-info
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          echo "artifact-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Build completado: $PROJECT_NAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.build-info.outputs.artifact-name }}-runner
+          path: target/*-runner
+          retention-days: 1

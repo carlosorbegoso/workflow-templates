@@ -1,0 +1,20 @@
+
+services:
+  app:
+    image: ${DOCKER_IMAGE:-tu-usuario-docker/tu-app-name:latest}
+    container_name: ${APP_NAME:-quarkus-app}
+    ports:
+      - "${CONTAINER_PORT:-8080}:8080"
+    environment:
+      - QUARKUS_HTTP_HOST=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
