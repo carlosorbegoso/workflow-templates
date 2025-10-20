@@ -63,7 +63,7 @@ jobs:
           echo "✅ Build completado: $PROJECT_NAME"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build-info.outputs.artifact-name }}-runner
           path: target/*-runner
