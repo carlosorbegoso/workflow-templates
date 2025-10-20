@@ -2,6 +2,12 @@ name: Quarkus Native Build & Deploy
 
 on:
   workflow_call:
+    inputs:
+      app-name:
+        description: 'Nombre de la aplicación'
+        required: false
+        type: string
+        default: 'quarkus-app'
     secrets:
       DOCKER_USERNAME:
         required: true
@@ -18,18 +24,18 @@ on:
 
 jobs:
   build:
-    uses: ${{ github.repository_owner }}/workflow-templates/.github/workflows/build.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
 
   push:
     needs: build
-    uses: ${{ github.repository_owner }}/workflow-templates/.github/workflows/push.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
   deploy:
     needs: push
-    uses: ${{ github.repository_owner }}/workflow-templates/.github/workflows/deploy.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
     secrets:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
