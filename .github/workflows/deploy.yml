@@ -109,7 +109,7 @@ jobs:
           
           # Si no se proporciona versión, usa el short SHA
           if [ -z "$IMAGE_VERSION" ] || [ "$IMAGE_VERSION" = "latest" ]; then
-            IMAGE_VERSION="v1.0.0"
+            IMAGE_VERSION="v0.0.1-$(date +%Y%m%d).$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
           fi
           
           echo "project-name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
