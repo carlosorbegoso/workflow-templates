@@ -150,15 +150,15 @@ jobs:
   # Build (para producción y desarrollo)
   build:
     name: Build Native Image
-    needs: [setup, test, quality, security]
-    if: needs.setup.outputs.run_build == 'true' && always() && (needs.test.result == 'success' || needs.test.result == 'skipped') && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped')
+    needs: [setup]
+    if: needs.setup.outputs.run_build == 'true'
     uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
 
   # Push to registry
   push:
     name: Push to Registry
-    needs: [setup, build]
-    if: needs.setup.outputs.run_build == 'true' && needs.build.result == 'success'
+    needs: [build]
+    if: needs.build.result == 'success'
     uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
     with:
       use_ghcr: true

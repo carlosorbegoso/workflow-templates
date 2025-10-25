@@ -1,0 +1,82 @@
+name: Simple Production Deploy
+
+on:
+  workflow_call:
+    secrets:
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_PATH:
+        required: true
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+      DB_USERNAME:
+        required: false
+      DB_PASSWORD:
+        required: false
+
+jobs:
+  # Build nativo
+  build:
+    name: Build Native Image
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
+
+  # Push a GHCR
+  push:
+    name: Push to GHCR
+    needs: build
+    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
+    with:
+      use_ghcr: true
+      push_to_registry: true
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
+  # Deploy al servidor
+  deploy:
+    name: Deploy to Server
+    needs: push
+    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
+    with:
+      image_version: ${{ needs.push.outputs.image-version }}
+      push_to_registry: true
+    secrets:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
+  # Resumen
+  summary:
+    name: Deployment Summary
+    needs: [build, push, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "================================"
+          echo "DEPLOYMENT SUMMARY"
+          echo "================================"
+          echo "Build: ${{ needs.build.result }}"
+          echo "Push: ${{ needs.push.result }}"
+          echo "Deploy: ${{ needs.deploy.result }}"
+          echo ""
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
+            echo "✅ Deployment completed successfully!"
+            echo "Image: ${{ needs.push.outputs.docker-image }}"
+            echo "Version: ${{ needs.push.outputs.image-version }}"
+          else
+            echo "❌ Deployment failed!"
+            echo "Check the logs above for details."
+          fi
