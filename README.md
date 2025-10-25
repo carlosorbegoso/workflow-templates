@@ -4,13 +4,25 @@ Repositorio central con plantillas reutilizables para construir y deployar aplic
 
 ## 📦 Contenido
 
-- **`.github/workflows/quarkus-native-build-deploy.yml`** - Workflow principal (orquestador)
-- **`.github/workflows/build.yml`** - Paso 1: Build de imagen nativa
-- **`.github/workflows/push.yml`** - Paso 2: Push a Docker Hub
-- **`.github/workflows/deploy.yml`** - Paso 3: Deploy al servidor
+### 🔧 Workflows principales:
+- **`.github/workflows/smart-pipeline.yml`** - Pipeline dinámico inteligente
+- **`.github/workflows/build.yml`** - Build de imagen nativa
+- **`.github/workflows/push.yml`** - Push a registry (GHCR/Docker Hub)
+- **`.github/workflows/deploy.yml`** - Deploy al servidor
+- **`.github/workflows/test.yml`** - Tests unitarios e integración
+- **`.github/workflows/quality-check.yml`** - Análisis de calidad
+- **`.github/workflows/security-scan.yml`** - Escaneo de seguridad
+
+### 📁 Ejemplos y guías:
+- **`examples/microservice-workflow.yml`** - Workflow listo para copiar
+- **`examples/migration-guide.md`** - Guía de migración paso a paso
+- **`examples/README.md`** - Documentación de ejemplos
+
+### 🛠️ Scripts de utilidad:
 - **`scripts/deploy.sh`** - Script de deployment
 - **`scripts/healthcheck.sh`** - Verificación de salud
 - **`scripts/status.sh`** - Ver estado de apps
+- **`scripts/validate-setup.sh`** - Validar configuración
 
 ## 🚀 Workflow Dinámico Inteligente
 
@@ -28,45 +40,22 @@ Repositorio central con plantillas reutilizables para construir y deployar aplic
 
 ## 📁 Uso en tu proyecto
 
-Solo necesitas UN archivo:
+### 🔄 Si ya tienes un workflow:
+👉 **Ve a `examples/migration-guide.md`** para migración paso a paso
+
+### 🆕 Si es un proyecto nuevo:
+👉 **Copia `examples/microservice-workflow.yml`** a tu proyecto
+
+### ⚡ Uso rápido:
 
 ### `.github/workflows/build-and-deploy.yml`
 
-**`.github/workflows/ci-cd.yml`**
-```yaml
-name: Smart CI/CD Pipeline
+1. **Copia** `examples/microservice-workflow.yml`
+2. **Pégalo** como `.github/workflows/ci-cd.yml` en tu microservicio
+3. **Configura** los secrets necesarios
+4. **Haz push** y listo
 
-on:
-  push:
-    branches: [main, develop, feature/*]
-  pull_request:
-    branches: [main, develop]
-
-jobs:
-  smart-pipeline:
-    uses: carlosorbegoso/workflow-templates/.github/workflows/smart-pipeline.yml@main
-    secrets:
-      # PRODUCCIÓN (obligatorios)
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      DB_USERNAME: ${{ secrets.DB_USERNAME }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      
-      # DESARROLLO (opcionales)
-      DEV_SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
-      DEV_SSH_USER: ${{ secrets.DEV_SSH_USER }}
-      DEV_SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
-      DEV_DEPLOY_PATH: ${{ secrets.DEV_DEPLOY_PATH }}
-      DEV_DB_USERNAME: ${{ secrets.DEV_DB_USERNAME }}
-      DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
-      
-      # REGISTRY Y CALIDAD (opcionales)
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_PAT: ${{ secrets.GHCR_PAT }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-```
+**Ejemplo completo en:** `examples/microservice-workflow.yml`
 
 ## 🎯 Comportamiento automático:
 
@@ -75,6 +64,12 @@ jobs:
 | **Pull Request** | cualquiera | Tests básicos | 3-5 min | Solo unit tests |
 | **Push** | `main` | Producción | 5-8 min | Build → Push → Deploy |
 | **Push** | `develop`, `feature/*` | Desarrollo | 15-20 min | Tests → Quality → Security → Build → Deploy |
+
+## 🔒 Seguridad mejorada:
+
+- ✅ **Secrets protegidos** - No se exponen como outputs
+- ✅ **Fallback inteligente** - Usa secrets de producción si no hay de desarrollo
+- ✅ **Detección automática** - Identifica qué secrets están disponibles
 
 ## 📋 Secrets requeridos en tu proyecto
 

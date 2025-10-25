@@ -57,12 +57,8 @@ jobs:
       run_security: ${{ steps.detect.outputs.run_security }}
       run_build: ${{ steps.detect.outputs.run_build }}
       run_deploy: ${{ steps.detect.outputs.run_deploy }}
-      ssh_host: ${{ steps.detect.outputs.ssh_host }}
-      ssh_user: ${{ steps.detect.outputs.ssh_user }}
-      ssh_key: ${{ steps.detect.outputs.ssh_key }}
-      deploy_path: ${{ steps.detect.outputs.deploy_path }}
-      db_username: ${{ steps.detect.outputs.db_username }}
-      db_password: ${{ steps.detect.outputs.db_password }}
+      use_prod_secrets: ${{ steps.detect.outputs.use_prod_secrets }}
+      use_dev_secrets: ${{ steps.detect.outputs.use_dev_secrets }}
     
     steps:
       - name: Detect environment and configure pipeline
@@ -96,13 +92,8 @@ jobs:
             echo "run_build=true" >> $GITHUB_OUTPUT
             echo "run_deploy=true" >> $GITHUB_OUTPUT
             
-            # Secrets de producción
-            echo "ssh_host=${{ secrets.SSH_HOST }}" >> $GITHUB_OUTPUT
-            echo "ssh_user=${{ secrets.SSH_USER }}" >> $GITHUB_OUTPUT
-            echo "ssh_key=${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
-            echo "deploy_path=${{ secrets.DEPLOY_PATH }}" >> $GITHUB_OUTPUT
-            echo "db_username=${{ secrets.DB_USERNAME }}" >> $GITHUB_OUTPUT
-            echo "db_password=${{ secrets.DB_PASSWORD }}" >> $GITHUB_OUTPUT
+            # Usar secrets de producción (no como outputs por seguridad)
+            echo "use_prod_secrets=true" >> $GITHUB_OUTPUT
             echo "Pipeline: PRODUCCIÓN - Build y deploy rápido"
             
           else
@@ -116,30 +107,12 @@ jobs:
             echo "run_build=true" >> $GITHUB_OUTPUT
             echo "run_deploy=true" >> $GITHUB_OUTPUT
             
-            # Secrets de desarrollo (con fallback a producción)
-            DEV_HOST="${{ secrets.DEV_SSH_HOST }}"
-            PROD_HOST="${{ secrets.SSH_HOST }}"
-            echo "ssh_host=${DEV_HOST:-$PROD_HOST}" >> $GITHUB_OUTPUT
-            
-            DEV_USER="${{ secrets.DEV_SSH_USER }}"
-            PROD_USER="${{ secrets.SSH_USER }}"
-            echo "ssh_user=${DEV_USER:-$PROD_USER}" >> $GITHUB_OUTPUT
-            
-            DEV_KEY="${{ secrets.DEV_SSH_PRIVATE_KEY }}"
-            PROD_KEY="${{ secrets.SSH_PRIVATE_KEY }}"
-            echo "ssh_key=${DEV_KEY:-$PROD_KEY}" >> $GITHUB_OUTPUT
-            
-            DEV_PATH="${{ secrets.DEV_DEPLOY_PATH }}"
-            PROD_PATH="${{ secrets.DEPLOY_PATH }}"
-            echo "deploy_path=${DEV_PATH:-$PROD_PATH}" >> $GITHUB_OUTPUT
-            
-            DEV_DB_USER="${{ secrets.DEV_DB_USERNAME }}"
-            PROD_DB_USER="${{ secrets.DB_USERNAME }}"
-            echo "db_username=${DEV_DB_USER:-$PROD_DB_USER}" >> $GITHUB_OUTPUT
-            
-            DEV_DB_PASS="${{ secrets.DEV_DB_PASSWORD }}"
-            PROD_DB_PASS="${{ secrets.DB_PASSWORD }}"
-            echo "db_password=${DEV_DB_PASS:-$PROD_DB_PASS}" >> $GITHUB_OUTPUT
+            # Detectar si hay secrets de desarrollo disponibles
+            if [ -n "${{ secrets.DEV_SSH_HOST }}" ]; then
+              echo "use_dev_secrets=true" >> $GITHUB_OUTPUT
+            else
+              echo "use_dev_secrets=false" >> $GITHUB_OUTPUT
+            fi
             echo "Pipeline: DESARROLLO - Pipeline completo con calidad"
           fi
 
@@ -204,14 +177,15 @@ jobs:
       image_version: ${{ needs.push.outputs.image-version }}
       push_to_registry: true
     secrets:
-      SSH_HOST: ${{ needs.setup.outputs.ssh_host }}
-      SSH_USER: ${{ needs.setup.outputs.ssh_user }}
-      SSH_PRIVATE_KEY: ${{ needs.setup.outputs.ssh_key }}
-      DEPLOY_PATH: ${{ needs.setup.outputs.deploy_path }}
+      # Usar secrets de desarrollo si están disponibles, sino usar producción
+      SSH_HOST: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_SSH_HOST || secrets.SSH_HOST }}
+      SSH_USER: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_SSH_USER || secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_SSH_PRIVATE_KEY || secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DEPLOY_PATH || secrets.DEPLOY_PATH }}
+      DB_USERNAME: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DB_USERNAME || secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DB_PASSWORD || secrets.DB_PASSWORD }}
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}
-      DB_USERNAME: ${{ needs.setup.outputs.db_username }}
-      DB_PASSWORD: ${{ needs.setup.outputs.db_password }}
 
   # Summary job
   summary:
@@ -228,6 +202,10 @@ jobs:
           echo "Environment: ${{ needs.setup.outputs.is_production == 'true' && 'PRODUCTION' || needs.setup.outputs.is_development == 'true' && 'DEVELOPMENT' || 'PULL REQUEST' }}"
           echo "Branch: ${{ github.ref_name }}"
           echo "Event: ${{ github.event_name }}"
+          echo ""
+          echo "Configuration:"
+          echo "- Use Dev Secrets: ${{ needs.setup.outputs.use_dev_secrets || 'false' }}"
+          echo "- Use Prod Secrets: ${{ needs.setup.outputs.use_prod_secrets || 'false' }}"
           echo ""
           echo "Jobs executed:"
           echo "- Tests: ${{ needs.setup.outputs.run_tests }}"
