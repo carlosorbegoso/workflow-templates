@@ -2,9 +2,15 @@ name: Deploy to Server
 
 on:
   workflow_call:
+    inputs:
+      image_version:
+        description: 'Docker image version to deploy'
+        required: false
+        default: 'latest'
+        type: string
     secrets:
       DOCKER_USERNAME:
-        required: true
+        required: false
       SSH_HOST:
         required: true
       SSH_USER:
@@ -18,9 +24,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
-      - name: Validate secrets
+      - name: Validate deployment secrets
         run: |
           if [ -z "${{ secrets.SSH_HOST }}" ]; then
             echo "Error: SSH_HOST no configurado"
@@ -39,98 +45,169 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout templates
-        uses: actions/checkout@v4
-        with:
-          repository: carlosorbegoso/workflow-templates
-          path: templates
-
-      - name: Checkout project
+      - name: Checkout project repository
         uses: actions/checkout@v4
         with:
           path: project
 
-      - name: Extract project info
-        id: project-info
+      - name: Checkout deployment templates
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/workflow-templates
+          path: templates
+          token: ${{ github.token }}
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # Guardar la SSH key de forma segura
+          cat > ~/.ssh/deploy_key << 'EOF'
+          ${{ secrets.SSH_PRIVATE_KEY }}
+          EOF
+          
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Agregar el host a known_hosts
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Configurar SSH config para usar la key
+          cat > ~/.ssh/config << 'SSHCONFIG'
+          Host deploy-server
+              HostName ${{ secrets.SSH_HOST }}
+              User ${{ secrets.SSH_USER }}
+              IdentityFile ~/.ssh/deploy_key
+              StrictHostKeyChecking accept-new
+              UserKnownHostsFile ~/.ssh/known_hosts
+          SSHCONFIG
+          
+          chmod 600 ~/.ssh/config
+
+      - name: Generate version info
+        id: version
         run: |
           PROJECT_NAME=$(basename ${{ github.repository }})
-          echo "project-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "image-name=docker.io/${{ secrets.DOCKER_USERNAME }}/${PROJECT_NAME}:latest" >> $GITHUB_OUTPUT
+          IMAGE_VERSION="${{ inputs.image_version }}"
+          
+          # Si no se proporciona versión, usa el short SHA
+          if [ -z "$IMAGE_VERSION" ] || [ "$IMAGE_VERSION" = "latest" ]; then
+            IMAGE_VERSION="v1.0.0"
+          fi
+          
+          echo "project-name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
+          echo "image-version=${IMAGE_VERSION}" >> $GITHUB_OUTPUT
+          echo "image-uri=ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Setup and deploy
-        env:
-          DEPLOY_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          DOCKER_IMAGE: ${{ steps.project-info.outputs.image-name }}
+      - name: Copy deployment scripts to server
         run: |
-          mkdir -p ~/.ssh
-          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          echo "Uploading deployment scripts..."
+          scp -i ~/.ssh/deploy_key -r templates/scripts "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/tmp/${{ steps.version.outputs.project-name }}-scripts/" || {
+            echo "Warning: Failed to upload scripts, continuing..."
+          }
           
-          scp -i ~/.ssh/deploy_key -r templates/scripts $DEPLOY_USER@$DEPLOY_HOST:/tmp/deploy-scripts/
-          scp -i ~/.ssh/deploy_key project/docker-compose.yml $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/
+          echo "Uploading docker-compose.yml..."
+          scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/" || {
+            echo "Warning: Failed to upload docker-compose.yml, continuing..."
+          }
+
+      - name: Deploy application
+        run: |
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+          DOCKER_IMAGE="${{ steps.version.outputs.image-uri }}"
+          PROJECT_NAME="${{ steps.version.outputs.project-name }}"
           
-          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'SETUP'
+          echo "Deploying $PROJECT_NAME with image: $DOCKER_IMAGE"
+          
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'DEPLOY_SCRIPT'
           set -e
           
-          DEPLOY_PATH=$DEPLOY_PATH
-          DOCKER_IMAGE=$DOCKER_IMAGE
-          APP_NAME=$(basename $DEPLOY_PATH)
+          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          DOCKER_IMAGE='${{ steps.version.outputs.image-uri }}'
+          PROJECT_NAME='${{ steps.version.outputs.project-name }}'
           
-          mkdir -p $DEPLOY_PATH
-          chmod 755 $DEPLOY_PATH
-          cd $DEPLOY_PATH
+          echo "================================"
+          echo "Starting deployment..."
+          echo "================================"
+          echo "Project: $PROJECT_NAME"
+          echo "Image: $DOCKER_IMAGE"
+          echo "Deploy Path: $DEPLOY_PATH"
+          echo ""
           
-          export DOCKER_IMAGE=$DOCKER_IMAGE
-          export APP_NAME=$APP_NAME
+          # Crear directorio de deploy si no existe
+          mkdir -p "$DEPLOY_PATH"
+          chmod 755 "$DEPLOY_PATH"
           
-          bash /tmp/deploy-scripts/deploy.sh
-          SETUP
-
-      - name: Health check
-        env:
-          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          cd "$DEPLOY_PATH"
           
-          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'HEALTH'
-          set -e
+          # Exportar variables para docker-compose
+          export DOCKER_IMAGE="$DOCKER_IMAGE"
+          export PROJECT_NAME="$PROJECT_NAME"
+          export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
           
-          DEPLOY_PATH=$DEPLOY_PATH
-          APP_NAME=$(basename $DEPLOY_PATH)
+          echo "Environment variables exported:"
+          echo "  DOCKER_IMAGE=$DOCKER_IMAGE"
+          echo "  PROJECT_NAME=$PROJECT_NAME"
+          echo ""
           
-          echo "Verificando salud de $APP_NAME..."
-          
-          for i in {1..30}; do
-            if docker-compose -f $DEPLOY_PATH/docker-compose.yml ps | grep -q "Up"; then
-              echo "Aplicacion esta saludable"
-              exit 0
-            fi
+          # Si existe docker-compose.yml, ejecutar el script de deploy
+          if [ -f "docker-compose.yml" ]; then
+            echo "Found docker-compose.yml, pulling latest image..."
+            docker-compose pull || true
             
-            echo "Intento $i/30..."
-            sleep 2
-          done
-          
-          echo "Error: Aplicacion no esta saludable"
-          docker-compose -f $DEPLOY_PATH/docker-compose.yml logs
-          exit 1
-          HEALTH
-
-      - name: Deployment status
-        if: always()
-        run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "Deployment exitoso"
+            echo "Starting containers..."
+            docker-compose up -d
+            
+            echo "Showing container status..."
+            docker-compose ps
+            
+            echo ""
+            echo "Application deployed successfully!"
           else
-            echo "Deployment fallo"
+            echo "Error: docker-compose.yml not found in $DEPLOY_PATH"
             exit 1
           fi
+          DEPLOY_SCRIPT
+
+      - name: Verify deployment
+        run: |
+          echo "Checking application status..."
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'VERIFY_SCRIPT'
+          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          PROJECT_NAME='${{ steps.version.outputs.project-name }}'
+          
+          cd "$DEPLOY_PATH"
+          
+          echo "Current docker-compose status:"
+          docker-compose ps || true
+          
+          echo ""
+          echo "Recent logs:"
+          docker-compose logs --tail=20 || true
+          VERIFY_SCRIPT
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "================================"
+          echo "✅ Deployment completed successfully!"
+          echo "================================"
+          echo ""
+          echo "Project: ${{ steps.version.outputs.project-name }}"
+          echo "Image: ${{ steps.version.outputs.image-uri }}"
+          echo "Deploy Path: ${{ secrets.DEPLOY_PATH }}"
+          echo "Server: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+
+      - name: Deployment failed
+        if: failure()
+        run: |
+          echo "================================"
+          echo "❌ Deployment failed!"
+          echo "================================"
+          echo ""
+          echo "Please check the logs above for more details"
+          echo "Common issues:"
+          echo "  - SSH_PRIVATE_KEY is not formatted correctly"
+          echo "  - docker-compose.yml is missing"
+          echo "  - Insufficient permissions on the server"
+          exit 1
