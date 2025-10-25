@@ -229,7 +229,7 @@ jobs:
   # Summary job
   summary:
     name: Pipeline Summary
-    needs: [setup, test, quality, security, build, push, deploy]
+    needs: [setup, test, quality, security, build-native, build-jvm, push-native, push-jvm, deploy-production, deploy-development]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -257,6 +257,9 @@ jobs:
           echo "- Tests: ${{ needs.test.result || 'skipped' }}"
           echo "- Quality: ${{ needs.quality.result || 'skipped' }}"
           echo "- Security: ${{ needs.security.result || 'skipped' }}"
-          echo "- Build: ${{ needs.build.result || 'skipped' }}"
-          echo "- Push: ${{ needs.push.result || 'skipped' }}"
-          echo "- Deploy: ${{ needs.deploy.result || 'skipped' }}"
+          echo "- Build Native: ${{ needs.build-native.result || 'skipped' }}"
+          echo "- Build JVM: ${{ needs.build-jvm.result || 'skipped' }}"
+          echo "- Push Native: ${{ needs.push-native.result || 'skipped' }}"
+          echo "- Push JVM: ${{ needs.push-jvm.result || 'skipped' }}"
+          echo "- Deploy Production: ${{ needs.deploy-production.result || 'skipped' }}"
+          echo "- Deploy Development: ${{ needs.deploy-development.result || 'skipped' }}"
