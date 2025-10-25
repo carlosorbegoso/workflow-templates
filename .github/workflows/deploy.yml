@@ -99,10 +99,36 @@ jobs:
           echo "image-version=${IMAGE_VERSION}" >> $GITHUB_OUTPUT
           echo "image-uri=ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}" >> $GITHUB_OUTPUT
 
+      - name: Create directories on server
+        run: |
+          PROJECT_NAME="${{ steps.version.outputs.project-name }}"
+          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+          
+          echo "Creating directories on remote server..."
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'SETUP_DIRS'
+          set -e
+          
+          SCRIPTS_PATH='${{ steps.version.outputs.project-name }}'
+          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          
+          echo "Creating $SCRIPTS_PATH..."
+          mkdir -p "/tmp/${SCRIPTS_PATH}-scripts"
+          
+          echo "Creating $DEPLOY_PATH..."
+          mkdir -p "$DEPLOY_PATH"
+          chmod 755 "$DEPLOY_PATH"
+          
+          echo "Directories created successfully!"
+          SETUP_DIRS
+
       - name: Copy deployment scripts to server
         run: |
-          echo "Uploading deployment scripts..."
-          scp -i ~/.ssh/deploy_key -r templates/scripts "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/tmp/${{ steps.version.outputs.project-name }}-scripts/" || {
+          PROJECT_NAME="${{ steps.version.outputs.project-name }}"
+          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
+          
+          echo "Uploading deployment scripts to $SCRIPTS_PATH..."
+          scp -i ~/.ssh/deploy_key -r templates/scripts/* "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${SCRIPTS_PATH}/" || {
             echo "Warning: Failed to upload scripts, continuing..."
           }
           
@@ -116,6 +142,7 @@ jobs:
           DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
           DOCKER_IMAGE="${{ steps.version.outputs.image-uri }}"
           PROJECT_NAME="${{ steps.version.outputs.project-name }}"
+          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
           
           echo "Deploying $PROJECT_NAME with image: $DOCKER_IMAGE"
           
@@ -125,6 +152,7 @@ jobs:
           DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
           DOCKER_IMAGE='${{ steps.version.outputs.image-uri }}'
           PROJECT_NAME='${{ steps.version.outputs.project-name }}'
+          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
           
           echo "================================"
           echo "Starting deployment..."
@@ -133,10 +161,6 @@ jobs:
           echo "Image: $DOCKER_IMAGE"
           echo "Deploy Path: $DEPLOY_PATH"
           echo ""
-          
-          # Crear directorio de deploy si no existe
-          mkdir -p "$DEPLOY_PATH"
-          chmod 755 "$DEPLOY_PATH"
           
           cd "$DEPLOY_PATH"
           
@@ -174,7 +198,6 @@ jobs:
           echo "Checking application status..."
           ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'VERIFY_SCRIPT'
           DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
-          PROJECT_NAME='${{ steps.version.outputs.project-name }}'
           
           cd "$DEPLOY_PATH"
           
