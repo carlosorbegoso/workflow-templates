@@ -57,9 +57,11 @@ jobs:
         timeout-minutes: 60
         run: |
           ./gradlew clean build \
-            -Pnative \
+            -x test \
+            -Dquarkus.package.jar.enabled=false \
+            -Dquarkus.native.enabled=true \
             -Dquarkus.native.container-build=true \
-            -x test
+            -Dquarkus.native.additional-build-args="--gc=serial"
 
       - name: Verify native runner was generated
         if: steps.build-tool.outputs.tool == 'gradle'
