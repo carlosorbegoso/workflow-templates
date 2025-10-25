@@ -56,7 +56,26 @@ jobs:
         if: steps.build-tool.outputs.tool == 'gradle'
         timeout-minutes: 60
         run: |
-          ./gradlew clean build -Dquarkus.package.type=native -x test
+          ./gradlew clean build \
+            -Pnative \
+            -Dquarkus.native.container-build=true \
+            -x test
+
+      - name: Verify native runner was generated
+        if: steps.build-tool.outputs.tool == 'gradle'
+        run: |
+          echo "Checking for native runner..."
+          if find . -maxdepth 3 -name '*-runner' -type f 2>/dev/null | grep -q .; then
+            echo "✓ Native runner found"
+            find . -maxdepth 3 -name '*-runner' -type f
+          else
+            echo "❌ ERROR: No native runner found!"
+            echo "Contents of build/:"
+            ls -lah build/ || echo "build/ does not exist"
+            echo "Contents of target/:"
+            ls -lah target/ || echo "target/ does not exist"
+            exit 1
+          fi
 
       - name: Extract build info
         id: build-info
@@ -68,5 +87,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build-info.outputs.artifact-name }}-runner
-          path: target/*-runner
+          # Upload both Maven and Gradle native runner locations so downstream
+          # workflows can download the artifact regardless of the build tool used.
+          # Maven: target/*-runner
+          # Gradle: build/*-runner
+          path: |
+            target/*-runner
+            build/*-runner
           retention-days: 1
