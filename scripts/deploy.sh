@@ -17,21 +17,21 @@ echo -e "${BLUE}Project Name: ${PROJECT_NAME}${NC}"
 echo -e "${BLUE}Deploy Path: ${DEPLOY_PATH}${NC}"
 
 if [ -z "$DOCKER_IMAGE" ]; then
-  echo -e "${RED}❌ Error: DOCKER_IMAGE no definida${NC}"
+  echo -e "${RED}ERROR: DOCKER_IMAGE no definida${NC}"
   echo -e "${YELLOW}Uso: DOCKER_IMAGE=imagen:tag PROJECT_NAME=nombre ./deploy.sh${NC}"
   exit 1
 fi
 
 if [ ! -d "$DEPLOY_PATH" ]; then
-  echo -e "${RED}❌ Error: DEPLOY_PATH no existe: $DEPLOY_PATH${NC}"
+  echo -e "${RED}ERROR: DEPLOY_PATH no existe: $DEPLOY_PATH${NC}"
   exit 1
 fi
 
 cd "$DEPLOY_PATH"
 
 if [ ! -f "docker-compose.yml" ]; then
-  echo -e "${RED}❌ Error: docker-compose.yml no encontrado en $DEPLOY_PATH${NC}"
-  echo -e "${YELLOW}💡 Crea un docker-compose.yml basado en docker-compose.example.yml${NC}"
+  echo -e "${RED}ERROR: docker-compose.yml no encontrado en $DEPLOY_PATH${NC}"
+  echo -e "${YELLOW}TIP: Crea un docker-compose.yml basado en docker-compose.example.yml${NC}"
   exit 1
 fi
 
