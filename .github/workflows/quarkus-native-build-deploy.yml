@@ -23,6 +23,8 @@ jobs:
   push:
     needs: build
     uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
+    with:
+      use_ghcr: ${{ inputs.use_ghcr }}
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
