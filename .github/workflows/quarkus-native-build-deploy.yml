@@ -2,6 +2,12 @@ name: Quarkus Native Build & Deploy
 
 on:
   workflow_call:
+    inputs:
+      use_ghcr:
+        description: 'Use GitHub Container Registry (ghcr.io) instead of Docker Hub'
+        required: false
+        default: false
+        type: boolean
     secrets:
       DOCKER_USERNAME:
         required: true
