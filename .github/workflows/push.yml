@@ -33,6 +33,22 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
 
+      - name: Prepare native runner for Docker build
+        run: |
+          # Ensure the Dockerfile COPY (build/*-runner) can find the native runner
+          mkdir -p build
+          # The download step writes artifacts into ./<artifact-name>/ by default.
+          # Find the first file that looks like a native runner and copy it into build/
+          RUNNER_FILE=$(find . -maxdepth 3 -type f -name '*-runner' -print -quit || true)
+          if [ -z "$RUNNER_FILE" ]; then
+            echo "No native runner artifact found in workspace after download-artifact."
+            echo "Workspace listing:" 
+            ls -R .
+            exit 1
+          fi
+          echo "Found runner: $RUNNER_FILE"
+          cp -v "$RUNNER_FILE" build/
+
       - name: Validate Dockerfile
         run: |
           if [ ! -f "src/main/docker/Dockerfile.native" ]; then
