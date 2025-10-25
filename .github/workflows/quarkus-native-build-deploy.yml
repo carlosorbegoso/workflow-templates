@@ -6,13 +6,14 @@ on:
       use_ghcr:
         description: 'Use GitHub Container Registry (ghcr.io) instead of Docker Hub'
         required: false
+        default: true
+        type: boolean
+      push_to_registry:
+        description: 'Push image to registry after build'
+        required: false
         default: false
         type: boolean
     secrets:
-      DOCKER_USERNAME:
-        required: true
-      DOCKER_PASSWORD:
-        required: true
       SSH_HOST:
         required: true
       SSH_USER:
@@ -21,26 +22,40 @@ on:
         required: true
       DEPLOY_PATH:
         required: true
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+      DB_USERNAME:
+        required: false
+      DB_PASSWORD:
+        required: false
 
 jobs:
   build:
+    name: Build Quarkus Native
     uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
 
   push:
+    name: Push Docker Image
     needs: build
     uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
     with:
       use_ghcr: ${{ inputs.use_ghcr }}
-    secrets:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      push_to_registry: ${{ inputs.push_to_registry }}
 
   deploy:
+    name: Deploy to Server
     needs: push
     uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
+    with:
+      image_version: v1.0.0
     secrets:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
