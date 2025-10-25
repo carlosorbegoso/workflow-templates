@@ -123,10 +123,25 @@ jobs:
       - name: Save image and upload artifact (no push)
         if: ${{ !inputs.push_to_registry }}
         run: |
-          # Use the computed image name (tags set by metadata-action). We tag latest locally as well to be safe.
-          IMAGE_NAME=${{ steps.docker-image.outputs.image-name }}:latest
-          echo "Saving image $IMAGE_NAME to image.tar"
-          docker save -o image.tar "$IMAGE_NAME"
+          # Use the computed image tags produced by docker/metadata-action.
+          # `steps.meta.outputs.tags` is a newline-separated list of full image refs (e.g. ghcr.io/owner/repo:main).
+          TAGS="${{ steps.meta.outputs.tags }}"
+          IMAGE_TO_SAVE=$(echo "$TAGS" | head -n1 | tr -d '\r')
+          echo "Found built image tag: $IMAGE_TO_SAVE"
+
+          # Tag it as :latest locally for compatibility with callers that expect latest.
+          IMAGE_BASE=${{ steps.docker-image.outputs.image-name }}
+          echo "Tagging $IMAGE_TO_SAVE as ${IMAGE_BASE}:latest"
+          docker tag "$IMAGE_TO_SAVE" "${IMAGE_BASE}:latest" || true
+
+          # Prefer saving the :latest tag we just created; fall back to the original built tag if save fails.
+          echo "Saving image ${IMAGE_BASE}:latest to image.tar (falling back to $IMAGE_TO_SAVE if needed)"
+          if docker save -o image.tar "${IMAGE_BASE}:latest"; then
+            echo "Saved ${IMAGE_BASE}:latest"
+          else
+            echo "Failed to save ${IMAGE_BASE}:latest, trying $IMAGE_TO_SAVE"
+            docker save -o image.tar "$IMAGE_TO_SAVE"
+          fi
 
       - name: Upload image artifact
         if: ${{ !inputs.push_to_registry }}
