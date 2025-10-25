@@ -122,7 +122,7 @@ jobs:
           SHORT_SHA="${COMMIT_SHA:0:7}"
           BRANCH_NAME="${{ github.ref_name }}"
           
-          # Crear tag dinámico
+          # Crear tag dinámico (usar solo los primeros 7 caracteres como en push.yml)
           if [ "$BRANCH_NAME" = "main" ]; then
             DYNAMIC_TAG="main-${SHORT_SHA}"
           else
@@ -323,9 +323,13 @@ jobs:
             echo "Available tags for $PROJECT_NAME:"
             
             # Intentar diferentes tags comunes
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA_7="${SHORT_SHA:0:7}"
+            
             POSSIBLE_TAGS=(
               "${{ steps.version.outputs.final-tag }}"
-              "main-${{ github.sha }}"
+              "main-${SHORT_SHA_7}"
+              "main-${SHORT_SHA}"
               "latest"
               "v1.0.0"
             )
