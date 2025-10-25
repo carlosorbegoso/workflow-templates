@@ -6,11 +6,9 @@ on:
       image_version:
         description: 'Docker image version to deploy'
         required: false
-        default: 'latest'
+        default: 'v1.0.0'
         type: string
     secrets:
-      DOCKER_USERNAME:
-        required: false
       SSH_HOST:
         required: true
       SSH_USER:
@@ -19,6 +17,20 @@ on:
         required: true
       DEPLOY_PATH:
         required: true
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+      DB_USERNAME:
+        required: false
+      DB_PASSWORD:
+        required: false
+      REGISTRY_HOST:
+        required: false
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_TOKEN:
+        required: false
 
 jobs:
   deploy:
@@ -128,12 +140,12 @@ jobs:
           SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
           
           echo "Uploading deployment scripts to $SCRIPTS_PATH..."
-          scp -i ~/.ssh/deploy_key -r templates/scripts/* "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${SCRIPTS_PATH}/" || {
+          scp -i ~/.ssh/deploy_key -r templates/scripts/* "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${SCRIPTS_PATH}/" 2>/dev/null || {
             echo "Warning: Failed to upload scripts, continuing..."
           }
           
           echo "Uploading docker-compose.yml..."
-          scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/" || {
+          scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/" 2>/dev/null || {
             echo "Warning: Failed to upload docker-compose.yml, continuing..."
           }
 
@@ -155,7 +167,7 @@ jobs:
           SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
           
           echo "================================"
-          echo "Starting deployment..."
+          echo "🚀 Starting deployment..."
           echo "================================"
           echo "Project: $PROJECT_NAME"
           echo "Image: $DOCKER_IMAGE"
@@ -168,27 +180,62 @@ jobs:
           export DOCKER_IMAGE="$DOCKER_IMAGE"
           export PROJECT_NAME="$PROJECT_NAME"
           export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+          export DB_USERNAME="${{ secrets.DB_USERNAME }}"
+          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
           
           echo "Environment variables exported:"
           echo "  DOCKER_IMAGE=$DOCKER_IMAGE"
           echo "  PROJECT_NAME=$PROJECT_NAME"
           echo ""
           
+          # If registry credentials are provided, log in so docker-compose can pull private images
+          REGISTRY_HOST='${{ secrets.REGISTRY_HOST }}'
+          REGISTRY_USERNAME='${{ secrets.REGISTRY_USERNAME }}'
+          REGISTRY_TOKEN='${{ secrets.REGISTRY_TOKEN }}'
+          GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}'
+          GHCR_PAT='${{ secrets.GHCR_PAT }}'
+
+          # Intentar autenticarse con GHCR si hay credenciales
+          if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_PAT" ]; then
+            echo "Logging in to GHCR (ghcr.io)..."
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin || {
+              echo "⚠️  Warning: Failed to authenticate with GHCR, continuing..."
+            }
+            echo "✅ GHCR authentication successful"
+          fi
+
+          # Alternativa: autenticarse con registro genérico
+          if [ -n "$REGISTRY_USERNAME" ] && [ -n "$REGISTRY_TOKEN" ]; then
+            RH="${REGISTRY_HOST:-ghcr.io}"
+            echo "Logging in to $RH as $REGISTRY_USERNAME..."
+            echo "$REGISTRY_TOKEN" | docker login "$RH" -u "$REGISTRY_USERNAME" --password-stdin || {
+              echo "⚠️  Warning: Failed to authenticate with registry, continuing..."
+            }
+          fi
+
           # Si existe docker-compose.yml, ejecutar el script de deploy
           if [ -f "docker-compose.yml" ]; then
             echo "Found docker-compose.yml, pulling latest image..."
-            docker-compose pull || true
-            
+            docker-compose pull || {
+              echo "⚠️  Warning: Failed to pull image, attempting to start with cached image..."
+            }
+
+            echo ""
             echo "Starting containers..."
-            docker-compose up -d
-            
+            docker-compose up -d || {
+              echo "❌ ERROR: Failed to start containers"
+              docker-compose logs
+              exit 1
+            }
+
+            echo ""
             echo "Showing container status..."
             docker-compose ps
-            
+
             echo ""
-            echo "Application deployed successfully!"
+            echo "✅ Application deployed successfully!"
           else
-            echo "Error: docker-compose.yml not found in $DEPLOY_PATH"
+            echo "❌ ERROR: docker-compose.yml not found in $DEPLOY_PATH"
             exit 1
           fi
           DEPLOY_SCRIPT
@@ -205,8 +252,8 @@ jobs:
           docker-compose ps || true
           
           echo ""
-          echo "Recent logs:"
-          docker-compose logs --tail=20 || true
+          echo "Recent logs (last 30 lines):"
+          docker-compose logs --tail=30 || true
           VERIFY_SCRIPT
 
       - name: Deployment summary
@@ -229,8 +276,17 @@ jobs:
           echo "================================"
           echo ""
           echo "Please check the logs above for more details"
+          echo ""
           echo "Common issues:"
-          echo "  - SSH_PRIVATE_KEY is not formatted correctly"
-          echo "  - docker-compose.yml is missing"
-          echo "  - Insufficient permissions on the server"
+          echo "  ❌ SSH_PRIVATE_KEY is not formatted correctly"
+          echo "  ❌ docker-compose.yml is missing"
+          echo "  ❌ Insufficient permissions on the server"
+          echo "  ❌ GHCR_USERNAME and GHCR_PAT not configured"
+          echo "  ❌ Image is private and credentials missing"
+          echo ""
+          echo "To fix:"
+          echo "  1. Check SSH key format (should be Ed25519 or RSA)"
+          echo "  2. Verify GHCR_USERNAME and GHCR_PAT secrets exist"
+          echo "  3. Ensure docker-compose.yml exists in project root"
+          echo "  4. Check DB_USERNAME and DB_PASSWORD are set"
           exit 1
