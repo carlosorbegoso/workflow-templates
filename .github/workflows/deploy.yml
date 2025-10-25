@@ -17,6 +17,10 @@ on:
         required: true
       DEPLOY_PATH:
         required: true
+      DOCKER_USERNAME:
+        required: false
+      DOCKER_PASSWORD:
+        required: false
       GHCR_USERNAME:
         required: false
       GHCR_PAT:
