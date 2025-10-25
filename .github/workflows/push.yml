@@ -115,8 +115,8 @@ jobs:
         with:
           context: .
           file: ./src/main/docker/Dockerfile.native
-          # push will be true only when inputs.push_to_registry is true
           push: ${{ inputs.push_to_registry }}
+          load: ${{ !inputs.push_to_registry }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
@@ -127,6 +127,7 @@ jobs:
           IMAGE_NAME=${{ steps.docker-image.outputs.image-name }}:latest
           echo "Saving image $IMAGE_NAME to image.tar"
           docker save -o image.tar "$IMAGE_NAME"
+
       - name: Upload image artifact
         if: ${{ !inputs.push_to_registry }}
         uses: actions/upload-artifact@v4
