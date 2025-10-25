@@ -18,7 +18,7 @@ En tu repositorio de proyecto, crea el archivo:
 
 ### `.github/workflows/build-and-deploy.yml`
 
-**Opción A: Con registry (GHCR o Docker Hub)**
+**Configuración recomendada (GitHub Container Registry)**
 ```yaml
 name: Build and Deploy Quarkus Native
 
@@ -33,20 +33,20 @@ jobs:
     if: github.event_name == 'push'
     uses: carlosorbegoso/workflow-templates/.github/workflows/quarkus-native-build-deploy.yml@main
     with:
-      use_ghcr: true
-      push_to_registry: true
+      use_ghcr: true        # Usa GitHub Container Registry
+      push_to_registry: true # Sube la imagen al registry (por defecto)
     secrets:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}  # Opcional: tu usuario GitHub
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}            # Opcional: Personal Access Token
       DB_USERNAME: ${{ secrets.DB_USERNAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 ```
 
-**Opción B: Sin registry (transferencia directa)**
+**Configuración simplificada (solo con GITHUB_TOKEN)**
 ```yaml
 name: Build and Deploy Quarkus Native
 
@@ -60,9 +60,6 @@ jobs:
   build-and-deploy:
     if: github.event_name == 'push'
     uses: carlosorbegoso/workflow-templates/.github/workflows/quarkus-native-build-deploy.yml@main
-    with:
-      use_ghcr: true
-      push_to_registry: false  # No sube al registry, transfiere directamente
     secrets:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
@@ -82,14 +79,19 @@ jobs:
 | `SSH_PRIVATE_KEY` | Clave privada SSH (multiline) | `-----BEGIN...` |
 | `DEPLOY_PATH` | Ruta en servidor | `/opt/apps/mi-app` |
 
-### Secrets para registry (elige uno):
-**Opción A: GitHub Container Registry (GHCR) - Recomendado**
+### Secrets para GitHub Container Registry (GHCR):
+**Opción A: Automático (recomendado)**
+- No necesitas configurar secrets adicionales
+- Usa automáticamente `GITHUB_TOKEN` y `github.actor`
+- Funciona out-of-the-box
+
+**Opción B: Con Personal Access Token (para más control)**
 | Secret | Descripción | Ejemplo |
 |--------|------------|---------|
-| `GHCR_USERNAME` | Tu usuario de GitHub | `migueldocker` |
-| `GHCR_PAT` | Personal Access Token con permisos de packages | `ghp_xxxx` |
+| `GHCR_USERNAME` | Tu usuario de GitHub | `carlosorbegoso` |
+| `GHCR_PAT` | Personal Access Token con permisos `write:packages` | `ghp_xxxx` |
 
-**Opción B: Docker Hub**
+### Secrets para Docker Hub (alternativo):
 | Secret | Descripción | Ejemplo |
 |--------|------------|---------|
 | `DOCKER_USERNAME` | Usuario Docker Hub | `migueldocker` |
