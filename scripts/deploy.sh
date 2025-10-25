@@ -40,48 +40,48 @@ export DOCKER_IMAGE="$DOCKER_IMAGE"
 export PROJECT_NAME="$PROJECT_NAME"
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 
-echo -e "${YELLOW}📥 Descargando imagen: $DOCKER_IMAGE${NC}"
+echo -e "${YELLOW}Descargando imagen: $DOCKER_IMAGE${NC}"
 if ! docker pull "$DOCKER_IMAGE"; then
-  echo -e "${RED}❌ Error: No se pudo descargar la imagen $DOCKER_IMAGE${NC}"
-  echo -e "${YELLOW}💡 Verifica que la imagen existe y tienes permisos${NC}"
+  echo -e "${RED}ERROR: No se pudo descargar la imagen $DOCKER_IMAGE${NC}"
+  echo -e "${YELLOW}TIP: Verifica que la imagen existe y tienes permisos${NC}"
   exit 1
 fi
 
-echo -e "${YELLOW}🛑 Deteniendo contenedor anterior...${NC}"
+echo -e "${YELLOW}Deteniendo contenedor anterior...${NC}"
 docker-compose down || true
 
-echo -e "${YELLOW}🚀 Iniciando nuevo contenedor...${NC}"
+echo -e "${YELLOW}Iniciando nuevo contenedor...${NC}"
 if ! docker-compose up -d; then
-  echo -e "${RED}❌ Error: No se pudo iniciar el contenedor${NC}"
-  echo -e "${YELLOW}📋 Logs del contenedor:${NC}"
+  echo -e "${RED}ERROR: No se pudo iniciar el contenedor${NC}"
+  echo -e "${YELLOW}Logs del contenedor:${NC}"
   docker-compose logs
   exit 1
 fi
 
-echo -e "${YELLOW}⏳ Esperando que el contenedor esté listo...${NC}"
+echo -e "${YELLOW}Esperando que el contenedor esté listo...${NC}"
 sleep 10
 
-echo -e "${YELLOW}🔍 Verificando estado...${NC}"
+echo -e "${YELLOW}Verificando estado...${NC}"
 if docker-compose ps | grep -q "Up"; then
-  echo -e "${GREEN}✅ $PROJECT_NAME deployado correctamente${NC}"
+  echo -e "${GREEN}SUCCESS: $PROJECT_NAME deployado correctamente${NC}"
   
   # Mostrar información del contenedor
-  echo -e "${BLUE}📊 Estado del contenedor:${NC}"
+  echo -e "${BLUE}Estado del contenedor:${NC}"
   docker-compose ps
   
   # Mostrar puertos expuestos
-  echo -e "${BLUE}🌐 Puertos expuestos:${NC}"
+  echo -e "${BLUE}Puertos expuestos:${NC}"
   docker-compose port app 8080 2>/dev/null || echo "Puerto 8080 no expuesto"
   
 else
-  echo -e "${RED}❌ Error: $PROJECT_NAME no está corriendo${NC}"
-  echo -e "${YELLOW}📋 Logs del contenedor:${NC}"
+  echo -e "${RED}ERROR: $PROJECT_NAME no está corriendo${NC}"
+  echo -e "${YELLOW}Logs del contenedor:${NC}"
   docker-compose logs
   exit 1
 fi
 
-echo -e "${YELLOW}🧹 Limpiando imágenes no utilizadas...${NC}"
+echo -e "${YELLOW}Limpiando imágenes no utilizadas...${NC}"
 docker image prune -f --filter "dangling=true" || true
 
-echo -e "${GREEN}🎉 Deploy completado exitosamente${NC}"
+echo -e "${GREEN}Deploy completado exitosamente${NC}"
 echo -e "${BLUE}=== Deploy Script Finished ===${NC}"

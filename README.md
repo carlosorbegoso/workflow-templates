@@ -188,26 +188,26 @@ El workflow detecta automáticamente:
 - `pom.xml` → Maven
 - `build.gradle` o `build.gradle.kts` → Gradle
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-### ❌ Error: "docker-compose.yml not found"
+### Error: "docker-compose.yml not found"
 ```bash
 # Copia el archivo de ejemplo y personalízalo
 cp docker-compose.example.yml docker-compose.yml
 # Edita los puertos y configuración según tu app
 ```
 
-### ❌ Error: "Failed to authenticate with GHCR"
+### Error: "Failed to authenticate with GHCR"
 1. Verifica que `GHCR_USERNAME` sea tu usuario de GitHub
 2. Crea un Personal Access Token con permisos `write:packages`
 3. Guárdalo en `GHCR_PAT`
 
-### ❌ Error: "No se pudo descargar la imagen"
+### Error: "No se pudo descargar la imagen"
 1. Verifica que la imagen existe en el registry
 2. Confirma que los secrets de autenticación están configurados
 3. Revisa que el workflow de build se ejecutó correctamente
 
-### ❌ Error: "SSH connection failed"
+### Error: "SSH connection failed"
 ```bash
 # Genera una nueva SSH key
 ssh-keygen -t ed25519 -f ~/.ssh/deploy_key -N ""
@@ -219,7 +219,7 @@ ssh-copy-id -i ~/.ssh/deploy_key.pub user@server
 cat ~/.ssh/deploy_key
 ```
 
-### 🔍 Verificar deployment
+### Verificar deployment
 ```bash
 # En el servidor, ve al directorio del proyecto
 cd /opt/apps/tu-proyecto
