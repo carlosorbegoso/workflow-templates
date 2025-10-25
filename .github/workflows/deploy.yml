@@ -17,10 +17,6 @@ on:
         required: true
       DEPLOY_PATH:
         required: true
-      DOCKER_USERNAME:
-        required: false
-      DOCKER_PASSWORD:
-        required: false
       GHCR_USERNAME:
         required: false
       GHCR_PAT:
@@ -118,74 +114,81 @@ jobs:
       - name: Create directories on server
         run: |
           PROJECT_NAME="${{ steps.version.outputs.project-name }}"
-          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
-          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+          DEPLOY_BASE="${{ secrets.DEPLOY_PATH }}"
+          DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${PROJECT_NAME}"
           
           echo "Creating directories on remote server..."
           ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'SETUP_DIRS'
           set -e
           
-          SCRIPTS_PATH='${{ steps.version.outputs.project-name }}'
-          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          DEPLOY_BASE='${{ secrets.DEPLOY_PATH }}'
+          PROJECT_NAME='${{ steps.version.outputs.project-name }}'
+          DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${PROJECT_NAME}"
           
-          echo "Creating $SCRIPTS_PATH..."
-          mkdir -p "/tmp/${SCRIPTS_PATH}-scripts"
+          echo "Creating base directory: $DEPLOY_BASE..."
+          mkdir -p "$DEPLOY_BASE"
+          chmod 755 "$DEPLOY_BASE"
           
-          echo "Creating $DEPLOY_PATH..."
-          mkdir -p "$DEPLOY_PATH"
-          chmod 755 "$DEPLOY_PATH"
+          echo "Creating project directory: $DEPLOY_PROJECT_PATH..."
+          mkdir -p "$DEPLOY_PROJECT_PATH"
+          chmod 755 "$DEPLOY_PROJECT_PATH"
           
-          echo "Directories created successfully!"
+          echo "✅ Directories created successfully!"
+          ls -la "$DEPLOY_BASE"
           SETUP_DIRS
 
-      - name: Copy deployment scripts to server
+      - name: Copy deployment files to server
         run: |
           PROJECT_NAME="${{ steps.version.outputs.project-name }}"
-          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
+          DEPLOY_BASE="${{ secrets.DEPLOY_PATH }}"
+          DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${PROJECT_NAME}"
           
-          echo "Uploading deployment scripts to $SCRIPTS_PATH..."
-          scp -i ~/.ssh/deploy_key -r templates/scripts/* "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${SCRIPTS_PATH}/" 2>/dev/null || {
-            echo "Warning: Failed to upload scripts, continuing..."
-          }
-          
-          echo "Uploading docker-compose.yml..."
-          scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/" 2>/dev/null || {
+          echo "Uploading docker-compose.yml to $DEPLOY_PROJECT_PATH..."
+          scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/" 2>/dev/null || {
             echo "Warning: Failed to upload docker-compose.yml, continuing..."
           }
+          
+          echo "Uploading .env file if exists..."
+          if [ -f "project/.env" ]; then
+            scp -i ~/.ssh/deploy_key project/.env "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_BASE}/" 2>/dev/null || {
+              echo "Warning: Failed to upload .env, continuing..."
+            }
+          else
+            echo "ℹ️ .env not found in project, using server's existing .env"
+          fi
 
       - name: Deploy application
         run: |
-          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+          DEPLOY_BASE="${{ secrets.DEPLOY_PATH }}"
+          DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${{ steps.version.outputs.project-name }}"
           DOCKER_IMAGE="${{ steps.version.outputs.image-uri }}"
           PROJECT_NAME="${{ steps.version.outputs.project-name }}"
-          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
           
           echo "Deploying $PROJECT_NAME with image: $DOCKER_IMAGE"
           
           ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'DEPLOY_SCRIPT'
           set -e
           
-          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          DEPLOY_BASE='${{ secrets.DEPLOY_PATH }}'
+          DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${{ steps.version.outputs.project-name }}"
           DOCKER_IMAGE='${{ steps.version.outputs.image-uri }}'
           PROJECT_NAME='${{ steps.version.outputs.project-name }}'
-          SCRIPTS_PATH="/tmp/${PROJECT_NAME}-scripts"
           
           echo "================================"
           echo "🚀 Starting deployment..."
           echo "================================"
           echo "Project: $PROJECT_NAME"
           echo "Image: $DOCKER_IMAGE"
-          echo "Deploy Path: $DEPLOY_PATH"
+          echo "Deploy Base: $DEPLOY_BASE"
+          echo "Project Path: $DEPLOY_PROJECT_PATH"
           echo ""
           
-          cd "$DEPLOY_PATH"
+          cd "$DEPLOY_PROJECT_PATH"
           
           # Exportar variables para docker-compose
           export DOCKER_IMAGE="$DOCKER_IMAGE"
           export PROJECT_NAME="$PROJECT_NAME"
           export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
-          export DB_USERNAME="${{ secrets.DB_USERNAME }}"
-          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
           
           echo "Environment variables exported:"
           echo "  DOCKER_IMAGE=$DOCKER_IMAGE"
@@ -239,18 +242,21 @@ jobs:
             echo ""
             echo "✅ Application deployed successfully!"
           else
-            echo "❌ ERROR: docker-compose.yml not found in $DEPLOY_PATH"
+            echo "❌ ERROR: docker-compose.yml not found in $DEPLOY_PROJECT_PATH"
             exit 1
           fi
           DEPLOY_SCRIPT
 
       - name: Verify deployment
         run: |
+          DEPLOY_BASE="${{ secrets.DEPLOY_PATH }}"
+          DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${{ steps.version.outputs.project-name }}"
+          
           echo "Checking application status..."
           ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'VERIFY_SCRIPT'
-          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          DEPLOY_PROJECT_PATH='$DEPLOY_PROJECT_PATH'
           
-          cd "$DEPLOY_PATH"
+          cd "$DEPLOY_PROJECT_PATH"
           
           echo "Current docker-compose status:"
           docker-compose ps || true
@@ -269,7 +275,7 @@ jobs:
           echo ""
           echo "Project: ${{ steps.version.outputs.project-name }}"
           echo "Image: ${{ steps.version.outputs.image-uri }}"
-          echo "Deploy Path: ${{ secrets.DEPLOY_PATH }}"
+          echo "Deploy Base: ${{ secrets.DEPLOY_PATH }}"
           echo "Server: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
 
       - name: Deployment failed
