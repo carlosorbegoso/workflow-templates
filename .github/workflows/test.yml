@@ -1,0 +1,88 @@
+name: Test Quarkus Application
+
+on:
+  workflow_call:
+    inputs:
+      java_version:
+        description: 'Java version to use'
+        required: false
+        default: '21'
+        type: string
+      run_integration_tests:
+        description: 'Run integration tests'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java_version }}
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        if: hashFiles('**/pom.xml') != ''
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Cache Gradle packages
+        if: hashFiles('**/build.gradle*') != ''
+        uses: actions/cache@v3
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle
+
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No pom.xml o build.gradle encontrado"
+            exit 1
+          fi
+
+      - name: Run tests with Maven
+        if: steps.build-tool.outputs.tool == 'maven'
+        run: |
+          if [ "${{ inputs.run_integration_tests }}" = "true" ]; then
+            ./mvnw clean verify
+          else
+            ./mvnw clean test
+          fi
+
+      - name: Run tests with Gradle
+        if: steps.build-tool.outputs.tool == 'gradle'
+        run: |
+          if [ "${{ inputs.run_integration_tests }}" = "true" ]; then
+            ./gradlew clean check
+          else
+            ./gradlew clean test
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            build/test-results/
+            build/reports/
+          retention-days: 7

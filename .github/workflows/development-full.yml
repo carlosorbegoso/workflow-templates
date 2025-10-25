@@ -1,0 +1,108 @@
+name: Development Full Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      java_version:
+        description: 'Java version to use'
+        required: false
+        default: '21'
+        type: string
+      sonar_enabled:
+        description: 'Enable SonarQube analysis'
+        required: false
+        default: true
+        type: boolean
+      deploy_to_dev:
+        description: 'Deploy to development environment'
+        required: false
+        default: true
+        type: boolean
+        
+    secrets:
+      # Deployment secrets (opcional para dev)
+      SSH_HOST:
+        required: false
+      SSH_USER:
+        required: false
+      SSH_PRIVATE_KEY:
+        required: false
+      DEPLOY_PATH:
+        required: false
+      
+      # Registry secrets
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+      
+      # Database secrets
+      DB_USERNAME:
+        required: false
+      DB_PASSWORD:
+        required: false
+      
+      # Quality secrets
+      SONAR_TOKEN:
+        required: false
+
+jobs:
+  # Pipeline completo para desarrollo
+  test:
+    name: Run Tests
+    uses: carlosorbegoso/workflow-templates/.github/workflows/test.yml@main
+    with:
+      java_version: ${{ inputs.java_version }}
+      run_integration_tests: true
+
+  quality:
+    name: Quality Checks
+    needs: test
+    uses: carlosorbegoso/workflow-templates/.github/workflows/quality-check.yml@main
+    with:
+      sonar_enabled: ${{ inputs.sonar_enabled }}
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  security:
+    name: Security Scan
+    uses: carlosorbegoso/workflow-templates/.github/workflows/security-scan.yml@main
+    with:
+      scan_dependencies: true
+      scan_code: true
+
+  build:
+    name: Build Native Image
+    needs: [test, quality, security]
+    if: always() && needs.test.result == 'success' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped')
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
+
+  push:
+    name: Push to Registry
+    needs: build
+    if: needs.build.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
+    with:
+      use_ghcr: true
+      push_to_registry: true
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
+  deploy-dev:
+    name: Deploy to Development
+    needs: push
+    if: inputs.deploy_to_dev && needs.push.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
+    with:
+      image_version: ${{ needs.push.outputs.image-version }}
+      push_to_registry: true
+    secrets:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}

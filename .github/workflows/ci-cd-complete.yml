@@ -1,0 +1,162 @@
+name: Complete CI/CD Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # Build options
+      java_version:
+        description: 'Java version to use'
+        required: false
+        default: '21'
+        type: string
+      
+      # Testing options
+      run_tests:
+        description: 'Run unit and integration tests'
+        required: false
+        default: true
+        type: boolean
+      run_integration_tests:
+        description: 'Run integration tests'
+        required: false
+        default: true
+        type: boolean
+      
+      # Quality options
+      run_quality_checks:
+        description: 'Run quality checks'
+        required: false
+        default: true
+        type: boolean
+      sonar_enabled:
+        description: 'Enable SonarQube analysis'
+        required: false
+        default: false
+        type: boolean
+      
+      # Security options
+      run_security_scan:
+        description: 'Run security scans'
+        required: false
+        default: true
+        type: boolean
+      
+      # Registry options
+      use_ghcr:
+        description: 'Use GitHub Container Registry'
+        required: false
+        default: true
+        type: boolean
+      push_to_registry:
+        description: 'Push image to registry'
+        required: false
+        default: true
+        type: boolean
+      
+      # Deployment options
+      deploy_enabled:
+        description: 'Enable deployment'
+        required: false
+        default: true
+        type: boolean
+      environment:
+        description: 'Deployment environment'
+        required: false
+        default: 'production'
+        type: string
+        
+    secrets:
+      # Deployment secrets
+      SSH_HOST:
+        required: false
+      SSH_USER:
+        required: false
+      SSH_PRIVATE_KEY:
+        required: false
+      DEPLOY_PATH:
+        required: false
+      
+      # Registry secrets
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+      
+      # Database secrets
+      DB_USERNAME:
+        required: false
+      DB_PASSWORD:
+        required: false
+      
+      # Quality secrets
+      SONAR_TOKEN:
+        required: false
+
+jobs:
+  # Stage 1: Testing
+  test:
+    name: Run Tests
+    if: inputs.run_tests
+    uses: carlosorbegoso/workflow-templates/.github/workflows/test.yml@main
+    with:
+      java_version: ${{ inputs.java_version }}
+      run_integration_tests: ${{ inputs.run_integration_tests }}
+
+  # Stage 2: Quality Checks
+  quality:
+    name: Quality Checks
+    if: inputs.run_quality_checks
+    needs: test
+    uses: carlosorbegoso/workflow-templates/.github/workflows/quality-check.yml@main
+    with:
+      sonar_enabled: ${{ inputs.sonar_enabled }}
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Stage 3: Security Scan
+  security:
+    name: Security Scan
+    if: inputs.run_security_scan
+    uses: carlosorbegoso/workflow-templates/.github/workflows/security-scan.yml@main
+    with:
+      scan_dependencies: true
+      scan_code: true
+
+  # Stage 4: Build Native Image
+  build:
+    name: Build Native Image
+    needs: [test]
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
+
+  # Stage 5: Push to Registry
+  push:
+    name: Push to Registry
+    needs: [build, quality, security]
+    if: always() && needs.build.result == 'success' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && (needs.security.result == 'success' || needs.security.result == 'skipped')
+    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
+    with:
+      use_ghcr: ${{ inputs.use_ghcr }}
+      push_to_registry: ${{ inputs.push_to_registry }}
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
+  # Stage 6: Deploy
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    needs: push
+    if: inputs.deploy_enabled && needs.push.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
+    with:
+      image_version: ${{ needs.push.outputs.image-version }}
+      push_to_registry: ${{ inputs.push_to_registry }}
+    secrets:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}

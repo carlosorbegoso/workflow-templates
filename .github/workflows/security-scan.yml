@@ -1,0 +1,53 @@
+name: Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      scan_dependencies:
+        description: 'Scan dependencies for vulnerabilities'
+        required: false
+        default: true
+        type: boolean
+      scan_code:
+        description: 'Run static code analysis'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        if: inputs.scan_dependencies
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        if: inputs.scan_dependencies
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Initialize CodeQL
+        if: inputs.scan_code
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      - name: Autobuild
+        if: inputs.scan_code
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        if: inputs.scan_code
+        uses: github/codeql-action/analyze@v3

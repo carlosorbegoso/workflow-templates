@@ -12,72 +12,89 @@ Repositorio central con plantillas reutilizables para construir y deployar aplic
 - **`scripts/healthcheck.sh`** - Verificación de salud
 - **`scripts/status.sh`** - Ver estado de apps
 
-## 🚀 Uso en tu proyecto
+## 🚀 Workflow Dinámico Inteligente
 
-En tu repositorio de proyecto, crea el archivo:
+### Un solo archivo que se adapta automáticamente:
+
+- **PULL REQUEST** → Tests rápidos (3-5 min)
+- **MAIN** → Deploy a producción (5-8 min)  
+- **DEVELOP/FEATURE** → Pipeline completo (15-20 min)
+
+### 🧠 Detección automática:
+- Detecta la rama y evento automáticamente
+- Ejecuta solo lo necesario para cada entorno
+- Usa secrets de desarrollo o producción según corresponda
+- Fallback inteligente si no tienes entornos separados
+
+## 📁 Uso en tu proyecto
+
+Solo necesitas UN archivo:
 
 ### `.github/workflows/build-and-deploy.yml`
 
-**Configuración recomendada (GitHub Container Registry)**
+**`.github/workflows/ci-cd.yml`**
 ```yaml
-name: Build and Deploy Quarkus Native
+name: Smart CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feature/*]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
-  build-and-deploy:
-    if: github.event_name == 'push'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/quarkus-native-build-deploy.yml@main
-    with:
-      use_ghcr: true        # Usa GitHub Container Registry
-      push_to_registry: true # Sube la imagen al registry (por defecto)
+  smart-pipeline:
+    uses: carlosorbegoso/workflow-templates/.github/workflows/smart-pipeline.yml@main
     secrets:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}  # Opcional: tu usuario GitHub
-      GHCR_PAT: ${{ secrets.GHCR_PAT }}            # Opcional: Personal Access Token
-      DB_USERNAME: ${{ secrets.DB_USERNAME }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-```
-
-**Configuración simplificada (solo con GITHUB_TOKEN)**
-```yaml
-name: Build and Deploy Quarkus Native
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
-jobs:
-  build-and-deploy:
-    if: github.event_name == 'push'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/quarkus-native-build-deploy.yml@main
-    secrets:
+      # PRODUCCIÓN (obligatorios)
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
       DB_USERNAME: ${{ secrets.DB_USERNAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      
+      # DESARROLLO (opcionales)
+      DEV_SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+      DEV_SSH_USER: ${{ secrets.DEV_SSH_USER }}
+      DEV_SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      DEV_DEPLOY_PATH: ${{ secrets.DEV_DEPLOY_PATH }}
+      DEV_DB_USERNAME: ${{ secrets.DEV_DB_USERNAME }}
+      DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
+      
+      # REGISTRY Y CALIDAD (opcionales)
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 ```
+
+## 🎯 Comportamiento automático:
+
+| Evento | Rama | Pipeline | Tiempo | Acciones |
+|--------|------|----------|--------|----------|
+| **Pull Request** | cualquiera | Tests básicos | 3-5 min | Solo unit tests |
+| **Push** | `main` | Producción | 5-8 min | Build → Push → Deploy |
+| **Push** | `develop`, `feature/*` | Desarrollo | 15-20 min | Tests → Quality → Security → Build → Deploy |
 
 ## 📋 Secrets requeridos en tu proyecto
 
-### Secrets obligatorios para deployment:
+### Secrets obligatorios (mínimo para funcionar):
 | Secret | Descripción | Ejemplo |
 |--------|------------|---------|
-| `SSH_HOST` | IP o dominio del servidor | `192.168.1.100` |
-| `SSH_USER` | Usuario SSH | `ubuntu` |
-| `SSH_PRIVATE_KEY` | Clave privada SSH (multiline) | `-----BEGIN...` |
-| `DEPLOY_PATH` | Ruta en servidor | `/opt/apps/mi-app` |
+| `SSH_HOST` | IP o dominio del servidor de producción | `192.168.1.100` |
+| `SSH_USER` | Usuario SSH de producción | `ubuntu` |
+| `SSH_PRIVATE_KEY` | Clave privada SSH | `-----BEGIN...` |
+| `DEPLOY_PATH` | Ruta en servidor de producción | `/opt/apps/mi-app` |
+
+### Secrets opcionales para entornos separados:
+| Secret | Descripción | Ejemplo |
+|--------|------------|---------|
+| `DEV_SSH_HOST` | Servidor de desarrollo | `192.168.1.101` |
+| `DEV_SSH_USER` | Usuario SSH de desarrollo | `ubuntu` |
+| `DEV_SSH_PRIVATE_KEY` | Clave SSH de desarrollo | `-----BEGIN...` |
+| `DEV_DEPLOY_PATH` | Ruta en servidor de desarrollo | `/opt/apps-dev/mi-app` |
+| `DEV_DB_USERNAME` | Usuario BD de desarrollo | `dev_user` |
+| `DEV_DB_PASSWORD` | Password BD de desarrollo | `dev_pass` |
 
 ### Secrets para GitHub Container Registry (GHCR):
 **Opción A: Automático (recomendado)**

@@ -1,0 +1,27 @@
+name: Pull Request Checks (Fast)
+
+on:
+  workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        required: false
+
+jobs:
+  # Solo tests básicos para PRs (súper rápido)
+  test:
+    name: Quick Tests
+    uses: carlosorbegoso/workflow-templates/.github/workflows/test.yml@main
+    with:
+      java_version: '21'
+      run_integration_tests: false  # Solo unit tests para velocidad
+
+  # Quality check básico (opcional)
+  quality:
+    name: Basic Quality Check
+    needs: test
+    if: needs.test.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/quality-check.yml@main
+    with:
+      sonar_enabled: false  # Sin Sonar para PRs (más rápido)
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
