@@ -73,6 +73,9 @@ jobs:
           repository: ${{ github.repository_owner }}/workflow-templates
           path: templates
           token: ${{ github.token }}
+          sparse-checkout: |
+            scripts/
+          sparse-checkout-cone-mode: false
 
       - name: Set up SSH
         run: |
@@ -185,34 +188,50 @@ jobs:
           DEPLOY_BASE="${{ secrets.DEPLOY_PATH }}"
           DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${PROJECT_NAME}"
           
+          echo "=== Copying deployment files ==="
+          echo "Project: $PROJECT_NAME"
+          echo "Deploy path: $DEPLOY_PROJECT_PATH"
+          echo ""
+          
+          # Solo copiar docker-compose.yml del proyecto
           echo "Uploading docker-compose.yml to $DEPLOY_PROJECT_PATH..."
           if [ -f "project/docker-compose.yml" ]; then
             scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/" || {
               echo "ERROR: Failed to upload docker-compose.yml"
               exit 1
             }
-            echo "docker-compose.yml uploaded successfully"
+            echo "✅ docker-compose.yml uploaded successfully"
           else
             echo "ERROR: docker-compose.yml not found in project root"
             echo "Files in project directory:"
             ls -la project/
+            echo ""
+            echo "REQUIRED: Create docker-compose.yml in your project root"
+            echo "You can use examples/yape-hub-docker-compose.yml as template"
             exit 1
           fi
           
-          # Si no se usa registry, subir la imagen como archivo
+          # Solo copiar imagen si no se usa registry
           if [ "${{ inputs.push_to_registry }}" = "false" ] && [ -f "image.tar" ]; then
             echo "Uploading Docker image to server..."
             scp -i ~/.ssh/deploy_key image.tar "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/"
+            echo "✅ Docker image uploaded"
           fi
           
-          echo "Uploading .env file if exists..."
+          # Solo copiar .env del proyecto si existe
+          echo "Checking for .env file..."
           if [ -f "project/.env" ]; then
-            scp -i ~/.ssh/deploy_key project/.env "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_BASE}/" 2>/dev/null || {
+            echo "Uploading .env file..."
+            scp -i ~/.ssh/deploy_key project/.env "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/" || {
               echo "Warning: Failed to upload .env, continuing..."
             }
+            echo "✅ .env uploaded"
           else
-            echo "INFO: .env not found in project, using server's existing .env"
+            echo "INFO: .env not found in project, server will use existing .env or defaults"
           fi
+          
+          echo ""
+          echo "=== Files copied successfully ==="
 
       - name: Deploy application
         run: |

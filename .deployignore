@@ -1,0 +1,45 @@
+# Archivos que NO deben copiarse al servidor durante deployment
+
+# Ejemplos y documentación
+examples/
+*.example.*
+*.template.*
+*-example.*
+*-template.*
+
+# Documentación
+README.md
+*.md
+docs/
+
+# Archivos de desarrollo
+.git/
+.github/
+.gitignore
+.deployignore
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.iml
+
+# Archivos temporales
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Archivos de prueba
+test/
+tests/
+*test*
+*spec*
+
+# Archivos de configuración local
+.env.local
+.env.development
+.env.test

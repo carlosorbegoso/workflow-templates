@@ -1,18 +1,34 @@
 #!/bin/bash
 
 # Script para verificar imágenes disponibles en GHCR
+# Uso: ./check-ghcr-images.sh [project-name] [owner]
+
 PROJECT_NAME=${1:-yape-hub}
 OWNER=${2:-carlosorbegoso}
 
 echo "=== Verificando imágenes en GHCR ==="
 echo "Proyecto: $PROJECT_NAME"
 echo "Owner: $OWNER"
+echo "Registry: ghcr.io"
 echo ""
 
-# Autenticarse con GHCR si hay credenciales
+# Verificar si Docker está disponible
+if ! command -v docker &> /dev/null; then
+    echo "ERROR: Docker no está instalado o no está en el PATH"
+    exit 1
+fi
+
+# Autenticarse con GHCR si hay credenciales en variables de entorno
 if [ -n "$GHCR_PAT" ] && [ -n "$GHCR_USERNAME" ]; then
-    echo "Autenticando con GHCR..."
+    echo "🔐 Autenticando con GHCR usando variables de entorno..."
     echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+elif [ -n "$GITHUB_TOKEN" ]; then
+    echo "🔐 Autenticando con GHCR usando GITHUB_TOKEN..."
+    echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$USER" --password-stdin
+else
+    echo "⚠️  No se encontraron credenciales de GHCR"
+    echo "   Puedes exportar GHCR_USERNAME y GHCR_PAT para autenticarte"
+    echo "   O usar GITHUB_TOKEN si tienes permisos"
 fi
 
 # Tags comunes a verificar
