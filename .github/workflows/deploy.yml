@@ -8,6 +8,11 @@ on:
         required: false
         default: 'v1.0.0'
         type: string
+      push_to_registry:
+        description: 'Whether the image was pushed to registry'
+        required: false
+        default: false
+        type: boolean
     secrets:
       SSH_HOST:
         required: true
@@ -109,7 +114,16 @@ jobs:
           
           echo "project-name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
           echo "image-version=${IMAGE_VERSION}" >> $GITHUB_OUTPUT
-          echo "image-uri=ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}" >> $GITHUB_OUTPUT
+          # Determinar la URI de la imagen basada en el registry usado
+          if [ "${{ secrets.GHCR_USERNAME }}" != "" ] && [ "${{ secrets.GHCR_PAT }}" != "" ]; then
+            IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}"
+          elif [ "${{ secrets.REGISTRY_HOST }}" != "" ]; then
+            IMAGE_URI="${{ secrets.REGISTRY_HOST }}/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}"
+          else
+            IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}"
+          fi
+          
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
 
       - name: Create directories on server
         run: |
@@ -137,6 +151,13 @@ jobs:
           ls -la "$DEPLOY_BASE"
           SETUP_DIRS
 
+      - name: Download Docker image artifact (if not pushed to registry)
+        if: ${{ !inputs.push_to_registry }}
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-${{ steps.version.outputs.image-version }}
+          path: ./
+
       - name: Copy deployment files to server
         run: |
           PROJECT_NAME="${{ steps.version.outputs.project-name }}"
@@ -147,6 +168,12 @@ jobs:
           scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/" 2>/dev/null || {
             echo "Warning: Failed to upload docker-compose.yml, continuing..."
           }
+          
+          # Si no se usa registry, subir la imagen como archivo
+          if [ "${{ inputs.push_to_registry }}" = "false" ] && [ -f "image.tar" ]; then
+            echo "Uploading Docker image to server..."
+            scp -i ~/.ssh/deploy_key image.tar "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/"
+          fi
           
           echo "Uploading .env file if exists..."
           if [ -f "project/.env" ]; then
@@ -188,47 +215,69 @@ jobs:
           # Exportar variables para docker-compose
           export DOCKER_IMAGE="$DOCKER_IMAGE"
           export PROJECT_NAME="$PROJECT_NAME"
+          export APP_NAME="$PROJECT_NAME"  # Para compatibilidad con docker-compose existentes
           export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+          
+          # Variables de base de datos
+          export DB_USERNAME='${{ secrets.DB_USERNAME }}'
+          export DB_PASSWORD='${{ secrets.DB_PASSWORD }}'
+          export DB_JDBC_URL="${DB_JDBC_URL:-jdbc:postgresql://localhost:5432/${PROJECT_NAME}}"
           
           echo "Environment variables exported:"
           echo "  DOCKER_IMAGE=$DOCKER_IMAGE"
           echo "  PROJECT_NAME=$PROJECT_NAME"
+          echo "  APP_NAME=$APP_NAME"
+          echo "  DB_USERNAME=$DB_USERNAME"
           echo ""
           
-          # If registry credentials are provided, log in so docker-compose can pull private images
-          REGISTRY_HOST='${{ secrets.REGISTRY_HOST }}'
-          REGISTRY_USERNAME='${{ secrets.REGISTRY_USERNAME }}'
-          REGISTRY_TOKEN='${{ secrets.REGISTRY_TOKEN }}'
-          GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}'
-          GHCR_PAT='${{ secrets.GHCR_PAT }}'
+          PUSH_TO_REGISTRY='${{ inputs.push_to_registry }}'
+          
+          # Si no se usa registry, cargar imagen desde archivo
+          if [ "$PUSH_TO_REGISTRY" = "false" ] && [ -f "image.tar" ]; then
+            echo "📦 Loading Docker image from file..."
+            docker load -i image.tar
+            echo "✅ Image loaded successfully"
+          else
+            # Si se usa registry, autenticarse y hacer pull
+            REGISTRY_HOST='${{ secrets.REGISTRY_HOST }}'
+            REGISTRY_USERNAME='${{ secrets.REGISTRY_USERNAME }}'
+            REGISTRY_TOKEN='${{ secrets.REGISTRY_TOKEN }}'
+            GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}'
+            GHCR_PAT='${{ secrets.GHCR_PAT }}'
 
-          # Intentar autenticarse con GHCR si hay credenciales
-          if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_PAT" ]; then
-            echo "Logging in to GHCR (ghcr.io)..."
-            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin || {
-              echo "⚠️  Warning: Failed to authenticate with GHCR, continuing..."
-            }
-            echo "✅ GHCR authentication successful"
-          fi
+            # Intentar autenticarse con GHCR si hay credenciales
+            if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_PAT" ]; then
+              echo "🔐 Logging in to GHCR (ghcr.io)..."
+              echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin && {
+                echo "✅ GHCR authentication successful"
+              } || {
+                echo "❌ Failed to authenticate with GHCR"
+                exit 1
+              }
+            elif [ -n "$REGISTRY_USERNAME" ] && [ -n "$REGISTRY_TOKEN" ]; then
+              # Alternativa: autenticarse con registro genérico
+              RH="${REGISTRY_HOST:-ghcr.io}"
+              echo "🔐 Logging in to $RH as $REGISTRY_USERNAME..."
+              echo "$REGISTRY_TOKEN" | docker login "$RH" -u "$REGISTRY_USERNAME" --password-stdin && {
+                echo "✅ Registry authentication successful"
+              } || {
+                echo "❌ Failed to authenticate with registry"
+                exit 1
+              }
+            else
+              echo "⚠️  No registry credentials provided - attempting to pull public image"
+            fi
 
-          # Alternativa: autenticarse con registro genérico
-          if [ -n "$REGISTRY_USERNAME" ] && [ -n "$REGISTRY_TOKEN" ]; then
-            RH="${REGISTRY_HOST:-ghcr.io}"
-            echo "Logging in to $RH as $REGISTRY_USERNAME..."
-            echo "$REGISTRY_TOKEN" | docker login "$RH" -u "$REGISTRY_USERNAME" --password-stdin || {
-              echo "⚠️  Warning: Failed to authenticate with registry, continuing..."
+            echo "📥 Pulling image from registry..."
+            docker-compose pull || {
+              echo "⚠️  Warning: Failed to pull image, attempting to start with cached image..."
             }
           fi
 
           # Si existe docker-compose.yml, ejecutar el script de deploy
           if [ -f "docker-compose.yml" ]; then
-            echo "Found docker-compose.yml, pulling latest image..."
-            docker-compose pull || {
-              echo "⚠️  Warning: Failed to pull image, attempting to start with cached image..."
-            }
-
             echo ""
-            echo "Starting containers..."
+            echo "🚀 Starting containers..."
             docker-compose up -d || {
               echo "❌ ERROR: Failed to start containers"
               docker-compose logs
