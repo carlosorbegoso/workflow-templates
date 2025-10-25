@@ -101,6 +101,16 @@ jobs:
 | `DB_USERNAME` | Usuario de base de datos | `app_user` |
 | `DB_PASSWORD` | Contraseña de base de datos | `secure_password` |
 
+### Variables disponibles en docker-compose.yml:
+| Variable | Descripción | Valor por defecto |
+|----------|-------------|-------------------|
+| `${DOCKER_IMAGE}` | Imagen Docker a deployar | Generada automáticamente |
+| `${PROJECT_NAME}` | Nombre del proyecto | Nombre del repositorio |
+| `${APP_NAME}` | Nombre de la aplicación | Igual que PROJECT_NAME |
+| `${DB_USERNAME}` | Usuario de base de datos | Del secret |
+| `${DB_PASSWORD}` | Contraseña de base de datos | Del secret |
+| `${DB_JDBC_URL}` | URL de conexión a BD | `jdbc:postgresql://localhost:5432/${PROJECT_NAME}` |
+
 ## 📝 Archivo requerido en tu proyecto
 
 ### `docker-compose.yml`

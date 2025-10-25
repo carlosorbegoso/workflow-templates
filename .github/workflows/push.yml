@@ -18,6 +18,10 @@ on:
         required: false
       DOCKER_PASSWORD:
         required: false
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
 
 jobs:
   push:
@@ -121,8 +125,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta

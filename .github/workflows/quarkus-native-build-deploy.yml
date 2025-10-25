@@ -11,7 +11,7 @@ on:
       push_to_registry:
         description: 'Push image to registry after build'
         required: false
-        default: false
+        default: true
         type: boolean
     secrets:
       SSH_HOST:
@@ -43,6 +43,9 @@ jobs:
     with:
       use_ghcr: ${{ inputs.use_ghcr }}
       push_to_registry: ${{ inputs.push_to_registry }}
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
   deploy:
     name: Deploy to Server
