@@ -147,19 +147,26 @@ jobs:
       scan_dependencies: true
       scan_code: true
 
-  # Build (nativo para producción, JVM para desarrollo)
-  build:
-    name: Build Application
+  # Build nativo (solo para producción)
+  build-native:
+    name: Build Native Image
     needs: [setup]
-    if: needs.setup.outputs.run_build == 'true'
-    uses: ${{ needs.setup.outputs.is_production == 'true' && 'carlosorbegoso/workflow-templates/.github/workflows/build.yml@main' || 'carlosorbegoso/workflow-templates/.github/workflows/build-jvm.yml@main' }}
+    if: needs.setup.outputs.run_build == 'true' && needs.setup.outputs.is_production == 'true'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
 
-  # Push to registry (nativo para producción, JVM para desarrollo)
-  push:
-    name: Push to Registry
-    needs: [setup, build]
-    if: needs.build.result == 'success'
-    uses: ${{ needs.setup.outputs.is_production == 'true' && 'carlosorbegoso/workflow-templates/.github/workflows/push.yml@main' || 'carlosorbegoso/workflow-templates/.github/workflows/push-jvm.yml@main' }}
+  # Build JVM (solo para desarrollo)
+  build-jvm:
+    name: Build JVM Image
+    needs: [setup]
+    if: needs.setup.outputs.run_build == 'true' && needs.setup.outputs.is_development == 'true'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build-jvm.yml@main
+
+  # Push nativo (solo para producción)
+  push-native:
+    name: Push Native Image
+    needs: [setup, build-native]
+    if: needs.build-native.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
     with:
       use_ghcr: true
       push_to_registry: true
@@ -167,14 +174,46 @@ jobs:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
-  # Deploy (para producción y desarrollo)
-  deploy:
-    name: Deploy Application
-    needs: [setup, push]
-    if: needs.setup.outputs.run_deploy == 'true' && needs.push.result == 'success'
+  # Push JVM (solo para desarrollo)
+  push-jvm:
+    name: Push JVM Image
+    needs: [setup, build-jvm]
+    if: needs.build-jvm.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/push-jvm.yml@main
+    with:
+      use_ghcr: true
+      push_to_registry: true
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
+  # Deploy producción
+  deploy-production:
+    name: Deploy to Production
+    needs: [setup, push-native]
+    if: needs.setup.outputs.run_deploy == 'true' && needs.push-native.result == 'success'
     uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
     with:
-      image_version: ${{ needs.push.outputs.image-version }}
+      image_version: ${{ needs.push-native.outputs.image-version }}
+      push_to_registry: true
+    secrets:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
+  # Deploy desarrollo
+  deploy-development:
+    name: Deploy to Development
+    needs: [setup, push-jvm]
+    if: needs.setup.outputs.run_deploy == 'true' && needs.push-jvm.result == 'success'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
+    with:
+      image_version: ${{ needs.push-jvm.outputs.image-version }}
       push_to_registry: true
     secrets:
       # Usar secrets de desarrollo si están disponibles, sino usar producción
