@@ -165,9 +165,18 @@ jobs:
           DEPLOY_PROJECT_PATH="${DEPLOY_BASE}/${PROJECT_NAME}"
           
           echo "Uploading docker-compose.yml to $DEPLOY_PROJECT_PATH..."
-          scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/" 2>/dev/null || {
-            echo "Warning: Failed to upload docker-compose.yml, continuing..."
-          }
+          if [ -f "project/docker-compose.yml" ]; then
+            scp -i ~/.ssh/deploy_key project/docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PROJECT_PATH}/" || {
+              echo "ERROR: Failed to upload docker-compose.yml"
+              exit 1
+            }
+            echo "docker-compose.yml uploaded successfully"
+          else
+            echo "ERROR: docker-compose.yml not found in project root"
+            echo "Files in project directory:"
+            ls -la project/
+            exit 1
+          fi
           
           # Si no se usa registry, subir la imagen como archivo
           if [ "${{ inputs.push_to_registry }}" = "false" ] && [ -f "image.tar" ]; then
@@ -269,9 +278,18 @@ jobs:
             fi
 
             echo "Pulling image from registry..."
-            docker-compose pull || {
-              echo "WARNING: Failed to pull image, attempting to start with cached image..."
-            }
+            if ! docker-compose pull; then
+              echo "ERROR: Failed to pull image from registry"
+              echo "Checking docker-compose.yml content:"
+              cat docker-compose.yml
+              echo ""
+              echo "Checking available images:"
+              docker images | grep yape-hub || echo "No yape-hub images found"
+              echo ""
+              echo "Checking GHCR connectivity:"
+              docker pull ghcr.io/carlosorbegoso/yape-hub:v1.0.0 || echo "Direct pull failed"
+              exit 1
+            fi
           fi
 
           # Si existe docker-compose.yml, ejecutar el script de deploy
