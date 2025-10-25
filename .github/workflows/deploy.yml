@@ -322,14 +322,17 @@ jobs:
             # Intentar listar imágenes disponibles (requiere autenticación)
             echo "Available tags for $PROJECT_NAME:"
             
-            # Intentar diferentes tags comunes
+            # Intentar diferentes tags comunes (nativo y JVM)
             SHORT_SHA="${{ github.sha }}"
             SHORT_SHA_7="${SHORT_SHA:0:7}"
+            BRANCH_NAME="${{ github.ref_name }}"
             
             POSSIBLE_TAGS=(
               "${{ steps.version.outputs.final-tag }}"
-              "main-${SHORT_SHA_7}"
-              "main-${SHORT_SHA}"
+              "${BRANCH_NAME}-${SHORT_SHA_7}"
+              "${BRANCH_NAME}-jvm-${SHORT_SHA_7}"
+              "${BRANCH_NAME}-${SHORT_SHA}"
+              "${BRANCH_NAME}-jvm-${SHORT_SHA}"
               "latest"
               "v1.0.0"
             )

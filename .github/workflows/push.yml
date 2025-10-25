@@ -154,7 +154,7 @@ jobs:
           file: ./src/main/docker/Dockerfile.native
           push: ${{ inputs.push_to_registry }}
           load: ${{ !inputs.push_to_registry }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.docker-image.outputs.full-image }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_DATE=${{ steps.version.outputs.build-date }}

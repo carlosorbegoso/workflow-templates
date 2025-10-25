@@ -98,11 +98,19 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME || github.actor }}
           password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
 
+      - name: Validate Dockerfile
+        run: |
+          if [ ! -f "src/main/docker/Dockerfile.jvm" ]; then
+            echo "Error: Dockerfile.jvm no encontrado"
+            echo "Asegúrate de tener src/main/docker/Dockerfile.jvm en tu proyecto"
+            exit 1
+          fi
+
       - name: Build and push JVM Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./src/main/docker/Dockerfile.jvm  # Usar Dockerfile JVM
+          file: ./src/main/docker/Dockerfile.jvm
           push: ${{ inputs.push_to_registry }}
           load: ${{ !inputs.push_to_registry }}
           tags: ${{ steps.docker-image.outputs.full-image }}
@@ -110,6 +118,21 @@ jobs:
             BUILD_DATE=${{ steps.version.outputs.build-date }}
             VERSION=${{ steps.version.outputs.version }}
             VCS_REF=${{ steps.version.outputs.short-hash }}
+
+      - name: Save image and upload artifact (no push)
+        if: ${{ !inputs.push_to_registry }}
+        run: |
+          IMAGE_TO_SAVE="${{ steps.docker-image.outputs.full-image }}"
+          echo "Saving JVM image $IMAGE_TO_SAVE to image.tar"
+          docker save -o image.tar "$IMAGE_TO_SAVE"
+
+      - name: Upload image artifact
+        if: ${{ !inputs.push_to_registry }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-jvm-${{ steps.version.outputs.version }}
+          path: image.tar
+          retention-days: 7
 
       - name: Docker image info
         run: |
