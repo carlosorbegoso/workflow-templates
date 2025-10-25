@@ -40,20 +40,29 @@ jobs:
       - name: Generate version from git
         id: version
         run: |
-          # Genera versión basada en git tags y commit hash
-          # Formato: v1.0.0 o v1.0.0-main.1234567
-          VERSION=$(git describe --tags --always --match "v*" 2>/dev/null || echo "v0.0.0")
-          BUILD_DATE=$(date -u +'%Y%m%d')
+          # Generar versión consistente con el deploy
           SHORT_HASH=$(git rev-parse --short HEAD)
+          BRANCH_NAME="${{ github.ref_name }}"
+          BUILD_DATE=$(date -u +'%Y%m%d')
           
-          # Si no hay tags, usa una versión basada en fecha y hash
-          if [ "$VERSION" = "v0.0.0" ]; then
-            VERSION="v0.0.1-${BUILD_DATE}.${SHORT_HASH}"
+          # Intentar obtener tag de git
+          GIT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          
+          if [ -n "$GIT_TAG" ]; then
+            # Si hay un tag exacto, usarlo
+            VERSION="$GIT_TAG"
+          elif [ "$BRANCH_NAME" = "main" ]; then
+            # Para main, usar formato main-hash
+            VERSION="main-${SHORT_HASH}"
+          else
+            # Para otras ramas, usar formato rama-hash
+            VERSION="${BRANCH_NAME}-${SHORT_HASH}"
           fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "build-date=${BUILD_DATE}" >> $GITHUB_OUTPUT
           echo "short-hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
 
       - name: Download artifact

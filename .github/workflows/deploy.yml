@@ -114,16 +114,37 @@ jobs:
           
           echo "project-name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
           echo "image-version=${IMAGE_VERSION}" >> $GITHUB_OUTPUT
-          # Determinar la URI de la imagen basada en el registry usado
-          if [ "${{ secrets.GHCR_USERNAME }}" != "" ] && [ "${{ secrets.GHCR_PAT }}" != "" ]; then
-            IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}"
-          elif [ "${{ secrets.REGISTRY_HOST }}" != "" ]; then
-            IMAGE_URI="${{ secrets.REGISTRY_HOST }}/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}"
+          # Generar tag dinámico basado en el commit actual
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          BRANCH_NAME="${{ github.ref_name }}"
+          
+          # Crear tag dinámico
+          if [ "$BRANCH_NAME" = "main" ]; then
+            DYNAMIC_TAG="main-${SHORT_SHA}"
           else
-            IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${IMAGE_VERSION}"
+            DYNAMIC_TAG="${BRANCH_NAME}-${SHORT_SHA}"
+          fi
+          
+          # Si se proporciona una versión específica, usarla
+          if [ -n "$IMAGE_VERSION" ] && [ "$IMAGE_VERSION" != "latest" ]; then
+            FINAL_TAG="$IMAGE_VERSION"
+          else
+            FINAL_TAG="$DYNAMIC_TAG"
+          fi
+          
+          # Determinar la URI de la imagen
+          if [ "${{ secrets.GHCR_USERNAME }}" != "" ] && [ "${{ secrets.GHCR_PAT }}" != "" ]; then
+            IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${FINAL_TAG}"
+          elif [ "${{ secrets.REGISTRY_HOST }}" != "" ]; then
+            IMAGE_URI="${{ secrets.REGISTRY_HOST }}/${{ github.repository_owner }}/${PROJECT_NAME}:${FINAL_TAG}"
+          else
+            IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${FINAL_TAG}"
           fi
           
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "final-tag=${FINAL_TAG}" >> $GITHUB_OUTPUT
+          echo "Generated image URI: ${IMAGE_URI}"
 
       - name: Create directories on server
         run: |
@@ -277,18 +298,61 @@ jobs:
               echo "WARNING: No registry credentials provided - attempting to pull public image"
             fi
 
+            echo "Checking available images in GHCR..."
+            
+            # Intentar listar imágenes disponibles (requiere autenticación)
+            echo "Available tags for $PROJECT_NAME:"
+            
+            # Intentar diferentes tags comunes
+            POSSIBLE_TAGS=(
+              "${{ steps.version.outputs.final-tag }}"
+              "main-${{ github.sha }}"
+              "latest"
+              "v1.0.0"
+            )
+            
+            FOUND_IMAGE=""
+            for tag in "${POSSIBLE_TAGS[@]}"; do
+              TEST_IMAGE="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${tag}"
+              echo "Testing image: $TEST_IMAGE"
+              
+              if docker manifest inspect "$TEST_IMAGE" >/dev/null 2>&1; then
+                echo "✅ Found working image: $TEST_IMAGE"
+                FOUND_IMAGE="$TEST_IMAGE"
+                break
+              else
+                echo "❌ Image not found: $TEST_IMAGE"
+              fi
+            done
+            
+            if [ -n "$FOUND_IMAGE" ]; then
+              echo "Using found image: $FOUND_IMAGE"
+              export DOCKER_IMAGE="$FOUND_IMAGE"
+            else
+              echo "ERROR: No valid image found. Trying original image anyway..."
+              export DOCKER_IMAGE="$DOCKER_IMAGE"
+            fi
+            
+            echo "Final DOCKER_IMAGE: $DOCKER_IMAGE"
+            
             echo "Pulling image from registry..."
             if ! docker-compose pull; then
               echo "ERROR: Failed to pull image from registry"
               echo "Checking docker-compose.yml content:"
               cat docker-compose.yml
               echo ""
-              echo "Checking available images:"
-              docker images | grep yape-hub || echo "No yape-hub images found"
+              echo "Checking available local images:"
+              docker images | grep "$PROJECT_NAME" || echo "No $PROJECT_NAME images found locally"
               echo ""
-              echo "Checking GHCR connectivity:"
-              docker pull ghcr.io/carlosorbegoso/yape-hub:v1.0.0 || echo "Direct pull failed"
-              exit 1
+              echo "Last attempt - trying to pull image directly:"
+              docker pull "$DOCKER_IMAGE" || {
+                echo "Direct pull also failed"
+                echo "This usually means:"
+                echo "1. The image doesn't exist in the registry"
+                echo "2. Authentication failed"
+                echo "3. The build step didn't complete successfully"
+                exit 1
+              }
             fi
           fi
 
