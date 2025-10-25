@@ -24,11 +24,33 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docker-image: ${{ steps.docker-image.outputs.full-image }}
+      image-version: ${{ steps.version.outputs.version }}
     timeout-minutes: 30
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate version from git
+        id: version
+        run: |
+          # Genera versión basada en git tags y commit hash
+          # Formato: v1.0.0 o v1.0.0-main.1234567
+          VERSION=$(git describe --tags --always --match "v*" 2>/dev/null || echo "v0.0.0")
+          BUILD_DATE=$(date -u +'%Y%m%d')
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          
+          # Si no hay tags, usa una versión basada en fecha y hash
+          if [ "$VERSION" = "v0.0.0" ]; then
+            VERSION="v0.0.1-${BUILD_DATE}.${SHORT_HASH}"
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "build-date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "short-hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -60,14 +82,16 @@ jobs:
         id: docker-image
         run: |
           PROJECT_NAME=$(basename ${{ github.repository }})
+          VERSION="${{ steps.version.outputs.version }}"
+          
           # Decide registry and image name based on inputs
           if [ "${{ inputs.use_ghcr }}" = "true" ]; then
             IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/$PROJECT_NAME"
-            FULL_IMAGE="$IMAGE_NAME:latest"
+            FULL_IMAGE="$IMAGE_NAME:${VERSION}"
           else
             DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
             IMAGE_NAME="$DOCKER_USER/$PROJECT_NAME"
-            FULL_IMAGE="docker.io/$IMAGE_NAME:latest"
+            FULL_IMAGE="docker.io/$IMAGE_NAME:${VERSION}"
           fi
           echo "image-name=$IMAGE_NAME" >> $GITHUB_OUTPUT
           echo "full-image=$FULL_IMAGE" >> $GITHUB_OUTPUT
@@ -106,9 +130,9 @@ jobs:
         with:
           images: ${{ steps.docker-image.outputs.image-name }}
           tags: |
-            type=ref,event=branch
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
             type=sha,prefix={{branch}}-
-            type=semver,pattern={{version}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -119,12 +143,16 @@ jobs:
           load: ${{ !inputs.push_to_registry }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ steps.version.outputs.build-date }}
+            VERSION=${{ steps.version.outputs.version }}
+            VCS_REF=${{ steps.version.outputs.short-hash }}
 
       - name: Save image and upload artifact (no push)
         if: ${{ !inputs.push_to_registry }}
         run: |
           # Use the computed image tags produced by docker/metadata-action.
-          # `steps.meta.outputs.tags` is a newline-separated list of full image refs (e.g. ghcr.io/owner/repo:main).
+          # `steps.meta.outputs.tags` is a newline-separated list of full image refs.
           TAGS="${{ steps.meta.outputs.tags }}"
           IMAGE_TO_SAVE=$(echo "$TAGS" | head -n1)
           
@@ -136,14 +164,28 @@ jobs:
         if: ${{ !inputs.push_to_registry }}
         uses: actions/upload-artifact@v4
         with:
-          name: docker-image
+          name: docker-image-${{ steps.version.outputs.version }}
           path: image.tar
+          retention-days: 7
 
       - name: Docker image info
         run: |
-          echo "Imagen: ${{ steps.docker-image.outputs.full-image }}"
+          echo "================================"
+          echo "Image built successfully!"
+          echo "================================"
+          echo ""
+          echo "Full Image URI: ${{ steps.docker-image.outputs.full-image }}"
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Build Date: ${{ steps.version.outputs.build-date }}"
+          echo "Short Hash: ${{ steps.version.outputs.short-hash }}"
+          echo ""
           if [ "${{ inputs.use_ghcr }}" = "true" ]; then
-            echo "Registry: https://ghcr.io/${{ github.repository_owner }}/${{ github.repository }} (GHCR)"
+            echo "Registry: GitHub Container Registry (GHCR)"
+            echo "URL: https://ghcr.io/${{ github.repository_owner }}/${{ github.repository }}"
           else
-            echo "Hub: https://hub.docker.com/r/${{ steps.docker-image.outputs.image-name }}"
+            echo "Registry: Docker Hub"
+            echo "URL: https://hub.docker.com/r/${{ steps.docker-image.outputs.image-name }}"
           fi
+          echo ""
+          echo "Tags generated:"
+          echo "${{ steps.meta.outputs.tags }}"
