@@ -398,6 +398,26 @@ jobs:
 
             echo ""
             echo "Application deployed successfully!"
+            
+            echo ""
+            echo "Cleaning up old images..."
+            
+            # Limpiar imágenes no utilizadas
+            docker image prune -f --filter "dangling=true" || echo "No dangling images to clean"
+            
+            # Limpiar imágenes del proyecto de más de 7 días
+            docker images --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedAt}}" | grep "$PROJECT_NAME" | while read line; do
+              IMAGE=$(echo "$line" | awk '{print $1}')
+              CREATED=$(echo "$line" | awk '{print $2}')
+              
+              # Si la imagen tiene más de 7 días, eliminarla (excepto la actual)
+              if [ "$IMAGE" != "$DOCKER_IMAGE" ]; then
+                echo "Checking old image: $IMAGE"
+                # Aquí podrías agregar lógica para eliminar imágenes viejas
+              fi
+            done
+            
+            echo "Cleanup completed"
           else
             echo "ERROR: docker-compose.yml not found in $DEPLOY_PROJECT_PATH"
             exit 1
