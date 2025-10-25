@@ -147,19 +147,19 @@ jobs:
       scan_dependencies: true
       scan_code: true
 
-  # Build (para producción y desarrollo)
+  # Build (nativo para producción, JVM para desarrollo)
   build:
-    name: Build Native Image
+    name: Build Application
     needs: [setup]
     if: needs.setup.outputs.run_build == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
+    uses: ${{ needs.setup.outputs.is_production == 'true' && 'carlosorbegoso/workflow-templates/.github/workflows/build.yml@main' || 'carlosorbegoso/workflow-templates/.github/workflows/build-jvm.yml@main' }}
 
-  # Push to registry
+  # Push to registry (nativo para producción, JVM para desarrollo)
   push:
     name: Push to Registry
-    needs: [build]
+    needs: [setup, build]
     if: needs.build.result == 'success'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
+    uses: ${{ needs.setup.outputs.is_production == 'true' && 'carlosorbegoso/workflow-templates/.github/workflows/push.yml@main' || 'carlosorbegoso/workflow-templates/.github/workflows/push-jvm.yml@main' }}
     with:
       use_ghcr: true
       push_to_registry: true

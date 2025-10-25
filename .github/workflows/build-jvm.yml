@@ -1,0 +1,74 @@
+name: Build Quarkus JVM Image
+
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.build-info.outputs.artifact-name }}
+    timeout-minutes: 15  # Mucho más rápido que nativo
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle
+
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "No pom.xml o build.gradle encontrado"
+            exit 1
+          fi
+
+      - name: Build with Maven (JVM)
+        if: steps.build-tool.outputs.tool == 'maven'
+        timeout-minutes: 10
+        run: |
+          ./mvnw clean package -DskipTests
+
+      - name: Build with Gradle (JVM)
+        if: steps.build-tool.outputs.tool == 'gradle'
+        timeout-minutes: 10
+        run: |
+          ./gradlew clean build -x test
+
+      - name: Extract build info
+        id: build-info
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          echo "artifact-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build-info.outputs.artifact-name }}-jvm
+          path: |
+            target/*.jar
+            build/libs/*.jar
+          retention-days: 1
