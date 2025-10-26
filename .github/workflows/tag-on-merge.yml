@@ -1,0 +1,62 @@
+name: Tag on merge to main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine next tag
+        id: calc_tag
+        run: |
+          set -euo pipefail
+          # Fetch tags already provided by checkout with fetch-depth: 0
+          latest=$(git tag --sort=-v:refname | head -n1 || true)
+          echo "Latest tag: $latest"
+
+          if [ -z "$latest" ]; then
+            # No tags yet -> start with v0.1.0
+            new_tag="v0.1.0"
+          elif [[ "$latest" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            major=${BASH_REMATCH[1]}
+            minor=${BASH_REMATCH[2]}
+            patch=${BASH_REMATCH[3]}
+            patch=$((patch + 1))
+            new_tag="v${major}.${minor}.${patch}"
+          else
+            # If the latest tag isn't semver, fallback to timestamped tag
+            new_tag="v$(date +'%Y%m%d%H%M%S')"
+          fi
+
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Creating tag: ${{ steps.calc_tag.outputs.new_tag }}"
+          git tag "${{ steps.calc_tag.outputs.new_tag }}"
+          git push origin "refs/tags/${{ steps.calc_tag.outputs.new_tag }}"
+
+      - name: Create GitHub release (optional)
+        if: always()
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ steps.calc_tag.outputs.new_tag }}
+          release_name: ${{ steps.calc_tag.outputs.new_tag }}
+          body: "Automated tag created by workflow on push to main."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
