@@ -1,0 +1,372 @@
+name: Build and Push Docker Image
+
+on:
+  workflow_call:
+    inputs:
+      build_type:
+        description: 'Type of build: native or jvm'
+        required: false
+        default: 'jvm'
+        type: string
+      push_to_registry:
+        description: 'Whether to push the image to a registry (true/false)'
+        required: false
+        default: false
+        type: boolean
+      use_ghcr:
+        description: 'Use GitHub Container Registry (ghcr.io) instead of Docker Hub'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      DOCKER_USERNAME:
+        required: false
+      DOCKER_PASSWORD:
+        required: false
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+    outputs:
+      image-version:
+        description: 'Generated image version'
+        value: ${{ jobs.build-and-push.outputs.image-version }}
+      docker-image:
+        description: 'Full Docker image URI'
+        value: ${{ jobs.build-and-push.outputs.docker-image }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      docker-image: ${{ steps.docker-image.outputs.full-image }}
+      image-version: ${{ steps.version.outputs.version }}
+    timeout-minutes: ${{ inputs.build_type == 'native' && 60 || 20 }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ========================================
+      # BUILD SETUP
+      # ========================================
+      - name: Set up build environment (Native)
+        if: inputs.build_type == 'native'
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+
+      - name: Set up build environment (JVM)
+        if: inputs.build_type == 'jvm'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle
+
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "No pom.xml o build.gradle encontrado"
+            exit 1
+          fi
+
+      # ========================================
+      # BUILD APPLICATION
+      # ========================================
+      - name: Build with Maven (Native)
+        if: steps.build-tool.outputs.tool == 'maven' && inputs.build_type == 'native'
+        timeout-minutes: 50
+        run: |
+          ./mvnw clean package -Pnative -DskipTests
+
+      - name: Build with Maven (JVM)
+        if: steps.build-tool.outputs.tool == 'maven' && inputs.build_type == 'jvm'
+        timeout-minutes: 10
+        run: |
+          ./mvnw clean package -DskipTests
+
+      - name: Build with Gradle (Native)
+        if: steps.build-tool.outputs.tool == 'gradle' && inputs.build_type == 'native'
+        timeout-minutes: 50
+        run: |
+          ./gradlew clean build \
+            -x test \
+            -Dquarkus.package.jar.enabled=false \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=true \
+            -Dquarkus.native.additional-build-args="--gc=serial"
+
+      - name: Build with Gradle (JVM)
+        if: steps.build-tool.outputs.tool == 'gradle' && inputs.build_type == 'jvm'
+        timeout-minutes: 10
+        run: |
+          ./gradlew clean build -x test
+
+      # ========================================
+      # VERIFY BUILD ARTIFACTS
+      # ========================================
+      - name: Verify native runner was generated
+        if: inputs.build_type == 'native'
+        run: |
+          echo "Checking for native runner..."
+          if find . -maxdepth 3 -name '*-runner' -type f 2>/dev/null | grep -q .; then
+            echo "✓ Native runner found"
+            find . -maxdepth 3 -name '*-runner' -type f
+          else
+            echo "❌ ERROR: No native runner found!"
+            echo "Contents of build/:"
+            ls -lah build/ || echo "build/ does not exist"
+            echo "Contents of target/:"
+            ls -lah target/ || echo "target/ does not exist"
+            exit 1
+          fi
+
+      - name: Verify JVM JAR was generated
+        if: inputs.build_type == 'jvm'
+        run: |
+          echo "Checking for JAR files..."
+          if find . -maxdepth 3 -name '*.jar' -type f 2>/dev/null | grep -q .; then
+            echo "✓ JAR files found"
+            find . -maxdepth 3 -name '*.jar' -type f
+          else
+            echo "❌ ERROR: No JAR files found!"
+            echo "Contents of build/libs/:"
+            ls -lah build/libs/ || echo "build/libs/ does not exist"
+            echo "Contents of target/:"
+            ls -lah target/ || echo "target/ does not exist"
+            exit 1
+          fi
+
+      # ========================================
+      # PREPARE DOCKER BUILD
+      # ========================================
+      - name: Generate version from git
+        id: version
+        run: |
+          # Generar versión consistente
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          BRANCH_NAME="${{ github.ref_name }}"
+          BUILD_DATE=$(date -u +'%Y%m%d')
+          BUILD_TYPE="${{ inputs.build_type }}"
+          
+          # Intentar obtener tag de git
+          GIT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          
+          if [ -n "$GIT_TAG" ]; then
+            # Si hay un tag exacto, usarlo con sufijo de tipo
+            if [ "$BUILD_TYPE" = "jvm" ]; then
+              VERSION="${GIT_TAG}-jvm"
+            else
+              VERSION="$GIT_TAG"
+            fi
+          elif [ "$BRANCH_NAME" = "main" ]; then
+            # Para main, usar formato main-hash
+            if [ "$BUILD_TYPE" = "jvm" ]; then
+              VERSION="main-jvm-${SHORT_HASH}"
+            else
+              VERSION="main-${SHORT_HASH}"
+            fi
+          else
+            # Para otras ramas, usar formato rama-hash
+            if [ "$BUILD_TYPE" = "jvm" ]; then
+              VERSION="${BRANCH_NAME}-jvm-${SHORT_HASH}"
+            else
+              VERSION="${BRANCH_NAME}-${SHORT_HASH}"
+            fi
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "build-date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "short-hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "build-type=${BUILD_TYPE}" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+      - name: Prepare build artifacts for Docker
+        run: |
+          mkdir -p build
+          
+          if [ "${{ inputs.build_type }}" = "native" ]; then
+            # Para build nativo, copiar el runner
+            RUNNER_FILE=$(find . -maxdepth 3 -type f -name '*-runner' -print -quit || true)
+            if [ -z "$RUNNER_FILE" ]; then
+              echo "ERROR: No native runner found"
+              exit 1
+            fi
+            echo "Found runner: $RUNNER_FILE"
+            cp -v "$RUNNER_FILE" build/
+          else
+            # Para build JVM, copiar JARs
+            find . -maxdepth 3 -name '*.jar' -type f -exec cp -v {} build/ \;
+            echo "JARs copied to build/"
+            ls -la build/
+          fi
+
+      - name: Validate Dockerfile
+        run: |
+          if [ "${{ inputs.build_type }}" = "native" ]; then
+            DOCKERFILE="src/main/docker/Dockerfile.native"
+          else
+            DOCKERFILE="src/main/docker/Dockerfile.jvm"
+          fi
+          
+          if [ ! -f "$DOCKERFILE" ]; then
+            echo "Error: $DOCKERFILE no encontrado"
+            echo "Available Dockerfiles:"
+            find . -name "Dockerfile*" -type f
+            exit 1
+          fi
+          
+          echo "Using Dockerfile: $DOCKERFILE"
+
+      # ========================================
+      # DOCKER IMAGE SETUP
+      # ========================================
+      - name: Extract Docker image name
+        id: docker-image
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Decide registry and image name based on inputs
+          if [ "${{ inputs.use_ghcr }}" = "true" ]; then
+            IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/$PROJECT_NAME"
+            FULL_IMAGE="$IMAGE_NAME:${VERSION}"
+          else
+            DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
+            IMAGE_NAME="$DOCKER_USER/$PROJECT_NAME"
+            FULL_IMAGE="docker.io/$IMAGE_NAME:${VERSION}"
+          fi
+          echo "image-name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "full-image=$FULL_IMAGE" >> $GITHUB_OUTPUT
+
+      - name: Validate registry credentials
+        if: ${{ inputs.push_to_registry && !inputs.use_ghcr }}
+        run: |
+          # When pushing to Docker Hub we require DOCKER_USERNAME and DOCKER_PASSWORD
+          if [ -z "${{ secrets.DOCKER_USERNAME }}" ] || [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
+            echo "Error: DOCKER_USERNAME and DOCKER_PASSWORD must be set to push to Docker Hub."
+            echo "Please add them in Settings → Secrets and variables → Actions for this repository."
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: ${{ inputs.push_to_registry && !inputs.use_ghcr }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to GitHub Container Registry
+        if: ${{ inputs.push_to_registry && inputs.use_ghcr }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.docker-image.outputs.image-name }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
+            type=sha,prefix={{branch}}-
+
+      # ========================================
+      # BUILD AND PUSH DOCKER IMAGE
+      # ========================================
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./src/main/docker/Dockerfile.${{ inputs.build_type == 'native' && 'native' || 'jvm' }}
+          push: ${{ inputs.push_to_registry }}
+          load: ${{ !inputs.push_to_registry }}
+          tags: ${{ steps.docker-image.outputs.full-image }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ steps.version.outputs.build-date }}
+            VERSION=${{ steps.version.outputs.version }}
+            VCS_REF=${{ steps.version.outputs.short-hash }}
+            BUILD_TYPE=${{ steps.version.outputs.build-type }}
+
+      - name: Save image and upload artifact (no push)
+        if: ${{ !inputs.push_to_registry }}
+        run: |
+          # Use the computed image tags produced by docker/metadata-action.
+          # `steps.meta.outputs.tags` is a newline-separated list of full image refs.
+          TAGS="${{ steps.meta.outputs.tags }}"
+          IMAGE_TO_SAVE=$(echo "$TAGS" | head -n1)
+          
+          echo "Found built image tag: $IMAGE_TO_SAVE"
+          echo "Saving image $IMAGE_TO_SAVE to image.tar"
+          docker save -o image.tar "$IMAGE_TO_SAVE"
+
+      - name: Upload image artifact
+        if: ${{ !inputs.push_to_registry }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ steps.version.outputs.version }}
+          path: image.tar
+          retention-days: 7
+
+      # ========================================
+      # BUILD SUMMARY
+      # ========================================
+      - name: Build and Push Summary
+        run: |
+          echo "================================"
+          echo "BUILD & PUSH COMPLETED!"
+          echo "================================"
+          echo ""
+          echo "Build Type: ${{ steps.version.outputs.build-type }}"
+          echo "Full Image URI: ${{ steps.docker-image.outputs.full-image }}"
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Build Date: ${{ steps.version.outputs.build-date }}"
+          echo "Short Hash: ${{ steps.version.outputs.short-hash }}"
+          echo "Branch: ${{ steps.version.outputs.branch }}"
+          echo ""
+          if [ "${{ inputs.use_ghcr }}" = "true" ]; then
+            echo "Registry: GitHub Container Registry (GHCR)"
+            echo "URL: https://ghcr.io/${{ github.repository_owner }}/${{ github.repository }}"
+          else
+            echo "Registry: Docker Hub"
+            echo "URL: https://hub.docker.com/r/${{ steps.docker-image.outputs.image-name }}"
+          fi
+          echo ""
+          if [ "${{ inputs.push_to_registry }}" = "true" ]; then
+            echo "✅ Image pushed to registry"
+          else
+            echo "💾 Image saved as artifact (not pushed)"
+          fi
+          echo ""
+          echo "Tags generated:"
+          echo "${{ steps.meta.outputs.tags }}"
