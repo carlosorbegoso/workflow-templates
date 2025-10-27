@@ -1,4 +1,4 @@
-name: Production Express Pipeline
+name: Production Express Deploy
 
 on:
   workflow_call:

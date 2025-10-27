@@ -1,0 +1,180 @@
+name: Deployment Validation
+
+on:
+  workflow_call:
+    inputs:
+      allowed_branches:
+        description: 'Comma-separated list of allowed branches'
+        required: false
+        default: 'main,master'
+        type: string
+      require_production_branch:
+        description: 'Require production branch for deployment'
+        required: false
+        default: true
+        type: boolean
+      allow_force_deploy:
+        description: 'Allow force deployment from any branch'
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      should_deploy:
+        description: 'Whether deployment should proceed'
+        value: ${{ jobs.validate.outputs.should_deploy }}
+      environment:
+        description: 'Detected environment'
+        value: ${{ jobs.validate.outputs.environment }}
+      branch_name:
+        description: 'Current branch name'
+        value: ${{ jobs.validate.outputs.branch_name }}
+
+jobs:
+  validate:
+    name: Validate Deployment Conditions
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      should_deploy: ${{ steps.validate.outputs.should_deploy }}
+      environment: ${{ steps.validate.outputs.environment }}
+      branch_name: ${{ steps.validate.outputs.branch_name }}
+    
+    steps:
+      - name: Validate deployment conditions
+        id: validate
+        run: |
+          echo "================================"
+          echo "DEPLOYMENT VALIDATION"
+          echo "================================"
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Repository: ${{ github.repository }}"
+          echo ""
+          
+          # Configuración
+          ALLOWED_BRANCHES="${{ inputs.allowed_branches }}"
+          REQUIRE_PROD_BRANCH="${{ inputs.require_production_branch }}"
+          ALLOW_FORCE="${{ inputs.allow_force_deploy }}"
+          FORCE_DEPLOY="${{ github.event.inputs.force_deploy }}"
+          CURRENT_BRANCH="${{ github.ref_name }}"
+          
+          echo "Configuration:"
+          echo "- Allowed branches: $ALLOWED_BRANCHES"
+          echo "- Require production branch: $REQUIRE_PROD_BRANCH"
+          echo "- Allow force deploy: $ALLOW_FORCE"
+          echo "- Force deploy requested: $FORCE_DEPLOY"
+          echo ""
+          
+          # Detectar entorno basado en rama
+          case "$CURRENT_BRANCH" in
+            "main"|"master")
+              ENVIRONMENT="production"
+              IS_PROD_BRANCH=true
+              ;;
+            "develop"|"development")
+              ENVIRONMENT="development"
+              IS_PROD_BRANCH=false
+              ;;
+            "staging"|"stage")
+              ENVIRONMENT="staging"
+              IS_PROD_BRANCH=false
+              ;;
+            feature/*|hotfix/*|release/*)
+              ENVIRONMENT="development"
+              IS_PROD_BRANCH=false
+              ;;
+            *)
+              ENVIRONMENT="development"
+              IS_PROD_BRANCH=false
+              ;;
+          esac
+          
+          echo "Detected environment: $ENVIRONMENT"
+          echo "Is production branch: $IS_PROD_BRANCH"
+          echo ""
+          
+          # Validar rama permitida
+          BRANCH_ALLOWED=false
+          IFS=',' read -ra BRANCHES <<< "$ALLOWED_BRANCHES"
+          for branch in "${BRANCHES[@]}"; do
+            if [ "$CURRENT_BRANCH" = "$branch" ]; then
+              BRANCH_ALLOWED=true
+              break
+            fi
+          done
+          
+          # Validar condiciones de deployment
+          SHOULD_DEPLOY=false
+          REASON=""
+          
+          if [ "$BRANCH_ALLOWED" = "true" ]; then
+            echo "✅ Branch is in allowed list"
+            SHOULD_DEPLOY=true
+          elif [ "$REQUIRE_PROD_BRANCH" = "true" ] && [ "$IS_PROD_BRANCH" = "false" ]; then
+            echo "❌ Production branch required but current branch is not production"
+            REASON="Not a production branch"
+            if [ "$ALLOW_FORCE" = "true" ] && [ "$FORCE_DEPLOY" = "true" ]; then
+              echo "⚠️  Force deploy enabled - overriding branch restriction"
+              SHOULD_DEPLOY=true
+              REASON="Force deploy enabled"
+            fi
+          else
+            echo "✅ Branch validation passed"
+            SHOULD_DEPLOY=true
+          fi
+          
+          # Validar tipo de evento
+          case "${{ github.event_name }}" in
+            "push")
+              echo "✅ Push event - deployment allowed"
+              ;;
+            "workflow_dispatch")
+              echo "✅ Manual trigger - deployment allowed"
+              ;;
+            "pull_request")
+              echo "ℹ️  Pull request - typically no deployment"
+              if [ "$ENVIRONMENT" = "production" ]; then
+                echo "❌ Production deployment not allowed from PR"
+                SHOULD_DEPLOY=false
+                REASON="Pull request to production"
+              fi
+              ;;
+            *)
+              echo "⚠️  Unusual event type: ${{ github.event_name }}"
+              ;;
+          esac
+          
+          # Outputs
+          echo "should_deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "branch_name=${CURRENT_BRANCH}" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "================================"
+          echo "VALIDATION RESULT"
+          echo "================================"
+          echo "Should deploy: $SHOULD_DEPLOY"
+          echo "Environment: $ENVIRONMENT"
+          echo "Branch: $CURRENT_BRANCH"
+          if [ -n "$REASON" ]; then
+            echo "Reason: $REASON"
+          fi
+          echo ""
+          
+          if [ "$SHOULD_DEPLOY" = "false" ]; then
+            echo "🚫 DEPLOYMENT BLOCKED"
+            echo ""
+            echo "Possible solutions:"
+            echo "1. Push to an allowed branch: $ALLOWED_BRANCHES"
+            if [ "$ALLOW_FORCE" = "true" ]; then
+              echo "2. Use workflow_dispatch with force_deploy=true"
+            fi
+            echo "3. Check your branch naming and workflow configuration"
+            echo ""
+            exit 1
+          else
+            echo "✅ DEPLOYMENT APPROVED"
+            echo "Proceeding with $ENVIRONMENT deployment..."
+          fi

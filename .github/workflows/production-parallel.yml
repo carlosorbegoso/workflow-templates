@@ -1,0 +1,523 @@
+name: Production Turbo Deploy
+
+on:
+  workflow_call:
+    secrets:
+      # Production secrets (required)
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_PATH:
+        required: true
+      
+      # Database secrets (required)
+      DB_USERNAME:
+        required: true
+      DB_PASSWORD:
+        required: true
+      DATABASE_URL:
+        required: true
+      
+      # Application secrets (required)
+      JWT_SECRET:
+        required: true
+      JWT_ISSUER:
+        required: true
+      MAILER_FROM:
+        required: true
+      SMTP_HOST:
+        required: true
+      SMTP_PORT:
+        required: false
+      EMAIL_USERNAME:
+        required: true
+      EMAIL_PASSWORD:
+        required: true
+      CORS_ORIGINS:
+        required: true
+      
+      # Registry secrets (required)
+      GHCR_USERNAME:
+        required: true
+      GHCR_PAT:
+        required: true
+
+jobs:
+  # ========================================
+  # FASE 1: PREPARACIÓN EN PARALELO
+  # ========================================
+  
+  # Job 1: Preparar entorno y cache
+  setup-cache:
+    name: Setup & Cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+      version: ${{ steps.version.outputs.version }}
+      build-tool: ${{ steps.build-tool.outputs.tool }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate cache key
+        id: cache-key
+        run: |
+          # Generar clave de cache única
+          CACHE_KEY="${{ runner.os }}-prod-$(date +%Y%m%d)-${{ hashFiles('**/pom.xml', '**/build.gradle*', '**/gradle-wrapper.properties', '**/maven-wrapper.properties') }}"
+          echo "key=${CACHE_KEY}" >> $GITHUB_OUTPUT
+          echo "Generated cache key: $CACHE_KEY"
+
+      - name: Generate version
+        id: version
+        run: |
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          VERSION="main-${SHORT_HASH}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No build tool found"
+            exit 1
+          fi
+
+      - name: Setup build environment
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          cache: ${{ steps.build-tool.outputs.tool }}
+
+      - name: Warm up cache
+        run: |
+          if [ "${{ steps.build-tool.outputs.tool }}" = "maven" ]; then
+            ./mvnw dependency:resolve-sources -q
+          else
+            ./gradlew dependencies --quiet
+          fi
+
+  # Job 2: Validar configuración en paralelo
+  validate-config:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Validate project structure
+        run: |
+          echo "🔍 Validating production build configuration..."
+          
+          # Validar estructura básica
+          if [ ! -d "src/main/java" ]; then
+            echo "❌ ERROR: src/main/java not found"
+            exit 1
+          fi
+          
+          # Validar Dockerfile nativo
+          if [ ! -f "src/main/docker/Dockerfile.native" ]; then
+            echo "❌ ERROR: Dockerfile.native not found"
+            exit 1
+          fi
+          
+          # Validar docker-compose para deploy
+          if [ ! -f "docker-compose.yml" ]; then
+            echo "⚠️  WARNING: docker-compose.yml not found in root"
+          fi
+          
+          echo "✅ Configuration validated for production"
+
+  # ========================================
+  # FASE 2: BUILD NATIVO OPTIMIZADO
+  # ========================================
+  
+  # Job 3: Build nativo (el más pesado)
+  native-build:
+    name: Native Build
+    needs: [setup-cache, validate-config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          cache: ${{ needs.setup-cache.outputs.build-tool }}
+
+      - name: Restore cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.cache/native-image
+          key: ${{ needs.setup-cache.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-prod-
+
+      - name: Ultra-fast Maven build
+        if: needs.setup-cache.outputs.build-tool == 'maven'
+        run: |
+          # Verificar perfil native
+          if ./mvnw help:all-profiles | grep -q "native"; then
+            NATIVE_PROFILE="-Pnative"
+          else
+            NATIVE_PROFILE=""
+          fi
+          
+          # Build nativo ultra-optimizado
+          ./mvnw clean package $NATIVE_PROFILE \
+            -DskipTests \
+            -Dmaven.test.skip=true \
+            -Dquarkus.package.jar.enabled=false \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=true \
+            -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback,-J-Xmx6g" \
+            -Dquarkus.native.enable-reports=false \
+            -Dquarkus.native.enable-vm-inspection=false \
+            -T 1C \
+            --no-transfer-progress \
+            -q
+
+      - name: Ultra-fast Gradle build
+        if: needs.setup-cache.outputs.build-tool == 'gradle'
+        run: |
+          # Detectar tareas disponibles
+          AVAILABLE_TASKS=$(./gradlew tasks --all --quiet | grep -E "^[a-zA-Z]" | awk '{print $1}')
+          
+          # Construir exclusiones
+          EXCLUSIONS="-x test"
+          for task in "javadoc" "checkstyleMain" "checkstyleTest" "spotbugsMain" "pmdMain"; do
+            if echo "$AVAILABLE_TASKS" | grep -q "^${task}$"; then
+              EXCLUSIONS="$EXCLUSIONS -x $task"
+            fi
+          done
+          
+          # Build nativo ultra-optimizado
+          ./gradlew clean build \
+            $EXCLUSIONS \
+            --parallel \
+            --build-cache \
+            --configuration-cache \
+            --no-daemon \
+            -Dorg.gradle.jvmargs="-Xmx6g" \
+            -Dquarkus.package.jar.enabled=false \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=true \
+            -Dquarkus.native.enable-reports=false \
+            -Dquarkus.native.enable-vm-inspection=false \
+            -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback,-J-Xmx6g"
+
+      - name: Verify native runner
+        run: |
+          RUNNER_FILE=$(find . -maxdepth 3 -type f -name '*-runner' -print -quit)
+          if [ -z "$RUNNER_FILE" ]; then
+            echo "❌ ERROR: No native runner found"
+            exit 1
+          fi
+          echo "✅ Native runner found: $RUNNER_FILE"
+          ls -lah "$RUNNER_FILE"
+
+      - name: Prepare artifact
+        id: artifact
+        run: |
+          mkdir -p build-output
+          RUNNER_FILE=$(find . -maxdepth 3 -type f -name '*-runner' -print -quit)
+          cp -v "$RUNNER_FILE" build-output/
+          
+          ARTIFACT_NAME="native-runner-${{ needs.setup-cache.outputs.version }}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload native runner
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: build-output/
+          retention-days: 1
+
+      - name: Save cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.cache/native-image
+          key: ${{ needs.setup-cache.outputs.cache-key }}
+
+  # ========================================
+  # FASE 3: DOCKER BUILD Y DEPLOY EN PARALELO
+  # ========================================
+  
+  # Job 4: Docker build (en paralelo con preparación de deploy)
+  docker-build:
+    name: Docker Build & Push
+    needs: [setup-cache, native-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      image-uri: ${{ steps.image.outputs.uri }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download native runner
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.native-build.outputs.artifact-name }}
+          path: build/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build and push image
+        id: image
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          VERSION="${{ needs.setup-cache.outputs.version }}"
+          IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${VERSION}"
+          
+          echo "🐳 Building and pushing: $IMAGE_URI"
+          
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --push \
+            --tag "$IMAGE_URI" \
+            --file ./src/main/docker/Dockerfile.native \
+            --build-arg VERSION="$VERSION" \
+            --build-arg PRODUCTION=true \
+            .
+          
+          echo "uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "✅ Image pushed: $IMAGE_URI"
+
+  # Job 5: Preparar deploy (en paralelo con Docker build)
+  prepare-deploy:
+    name: Prepare Deploy
+    needs: [setup-cache]
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Prepare server directories
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}/${PROJECT_NAME}"
+          
+          echo "📁 Preparing server directories..."
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'PREPARE'
+          set -e
+          
+          PROJECT_NAME="${{ github.repository }}"
+          PROJECT_NAME=$(basename "$PROJECT_NAME")
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}/${PROJECT_NAME}"
+          
+          echo "Creating directories..."
+          mkdir -p "$DEPLOY_PATH"
+          cd "$DEPLOY_PATH"
+          
+          echo "Checking Docker and Compose..."
+          docker --version
+          if docker compose version >/dev/null 2>&1; then
+            echo "✅ Docker Compose v2 available"
+          elif command -v docker-compose >/dev/null 2>&1; then
+            echo "✅ Docker Compose v1 available"
+          else
+            echo "❌ ERROR: No Docker Compose found"
+            exit 1
+          fi
+          
+          echo "✅ Server prepared"
+          PREPARE
+
+      - name: Upload deployment files
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}/${PROJECT_NAME}"
+          
+          echo "📤 Uploading deployment files..."
+          
+          # Upload docker-compose.yml
+          if [ -f "docker-compose.yml" ]; then
+            scp -i ~/.ssh/deploy_key docker-compose.yml "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PATH}/"
+            echo "✅ docker-compose.yml uploaded"
+          else
+            echo "❌ ERROR: docker-compose.yml not found"
+            exit 1
+          fi
+          
+          # Upload .env if exists
+          if [ -f ".env" ]; then
+            scp -i ~/.ssh/deploy_key .env "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_PATH}/"
+            echo "✅ .env uploaded"
+          fi
+
+  # ========================================
+  # FASE 4: DEPLOY FINAL
+  # ========================================
+  
+  # Job 6: Deploy final (espera a Docker build y preparación)
+  deploy:
+    name: Deploy to Production
+    needs: [setup-cache, docker-build, prepare-deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy application
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}/${PROJECT_NAME}"
+          IMAGE_URI="${{ needs.docker-build.outputs.image-uri }}"
+          
+          echo "🚀 Deploying to production..."
+          echo "Project: $PROJECT_NAME"
+          echo "Image: $IMAGE_URI"
+          echo "Path: $DEPLOY_PATH"
+          
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'DEPLOY'
+          set -e
+          
+          PROJECT_NAME="${{ github.repository }}"
+          PROJECT_NAME=$(basename "$PROJECT_NAME")
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}/${PROJECT_NAME}"
+          IMAGE_URI="${{ needs.docker-build.outputs.image-uri }}"
+          
+          cd "$DEPLOY_PATH"
+          
+          # Login a GHCR
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+          
+          # Variables de entorno
+          export DOCKER_IMAGE="$IMAGE_URI"
+          export PROJECT_NAME="$PROJECT_NAME"
+          export DB_USERNAME="${{ secrets.DB_USERNAME }}"
+          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+          export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+          export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+          export JWT_ISSUER="${{ secrets.JWT_ISSUER }}"
+          export MAILER_FROM="${{ secrets.MAILER_FROM }}"
+          export SMTP_HOST="${{ secrets.SMTP_HOST }}"
+          export SMTP_PORT="${{ secrets.SMTP_PORT }}"
+          export EMAIL_USERNAME="${{ secrets.EMAIL_USERNAME }}"
+          export EMAIL_PASSWORD="${{ secrets.EMAIL_PASSWORD }}"
+          export CORS_ORIGINS="${{ secrets.CORS_ORIGINS }}"
+          
+          # Determinar comando de compose
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          else
+            COMPOSE_CMD="docker-compose"
+          fi
+          
+          echo "⬇️ Pulling image..."
+          docker pull "$IMAGE_URI"
+          
+          echo "🔄 Updating containers..."
+          $COMPOSE_CMD down --remove-orphans || true
+          $COMPOSE_CMD up -d --force-recreate
+          
+          echo "🧹 Cleaning up..."
+          docker image prune -f --filter "dangling=true"
+          
+          echo "✅ Deployment completed!"
+          $COMPOSE_CMD ps
+          DEPLOY
+
+  # ========================================
+  # RESUMEN FINAL
+  # ========================================
+  
+  summary:
+    name: Production Summary
+    needs: [setup-cache, native-build, docker-build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Production Pipeline Summary
+        run: |
+          echo "================================"
+          echo "🚀 PRODUCTION PARALLEL PIPELINE"
+          echo "================================"
+          echo ""
+          echo "📊 Execution Summary:"
+          echo "  - Setup & Cache: ${{ needs.setup-cache.result }}"
+          echo "  - Native Build: ${{ needs.native-build.result }}"
+          echo "  - Docker Build: ${{ needs.docker-build.result }}"
+          echo "  - Deploy: ${{ needs.deploy.result }}"
+          echo ""
+          echo "🎯 Optimizations Applied:"
+          echo "  ✅ Parallel execution (4 jobs)"
+          echo "  ✅ Advanced caching"
+          echo "  ✅ Native build optimizations"
+          echo "  ✅ Docker layer caching"
+          echo "  ✅ Concurrent deploy preparation"
+          echo ""
+          echo "📦 Deployed Image: ${{ needs.docker-build.outputs.image-uri }}"
+          echo "🕐 Estimated time: ~15-20 minutes"
+          echo ""
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
+            echo "✅ PRODUCTION DEPLOYMENT SUCCESSFUL!"
+          else
+            echo "❌ Deployment failed - check logs above"
+          fi

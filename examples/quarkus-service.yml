@@ -1,14 +1,42 @@
-name: Smart CI/CD Pipeline
+name: Quarkus Service CI/CD
 
 on:
   push:
-    branches: [main, develop, feature/*]
+    branches: 
+      - main
+      - master
+      - develop
+      - 'feature/**'
+      - 'hotfix/**'
+      - 'release/**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
   pull_request:
-    branches: [main, develop]
-
+    branches: 
+      - main
+      - master
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:  # Permite ejecución manual
+    inputs:
+      environment:
+        description: 'Entorno de deploy'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+        - auto
+        - development
+        - production
 
 jobs:
-  smart-pipeline:
+  adaptive-pipeline:
+    name: Adaptive CI/CD Pipeline
     uses: carlosorbegoso/workflow-templates/.github/workflows/smart-pipeline.yml@main
     secrets:
       # PRODUCCIÓN (obligatorios)
