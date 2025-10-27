@@ -1,0 +1,274 @@
+name: Production Express Pipeline
+
+on:
+  workflow_call:
+    secrets:
+      # Production secrets (required)
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_PATH:
+        required: true
+      
+      # Database secrets (required)
+      DB_USERNAME:
+        required: true
+      DB_PASSWORD:
+        required: true
+      DATABASE_URL:
+        required: true
+      
+      # Application secrets (required)
+      JWT_SECRET:
+        required: true
+      JWT_ISSUER:
+        required: true
+      MAILER_FROM:
+        required: true
+      SMTP_HOST:
+        required: true
+      SMTP_PORT:
+        required: false
+      EMAIL_USERNAME:
+        required: true
+      EMAIL_PASSWORD:
+        required: true
+      CORS_ORIGINS:
+        required: true
+      
+      # Registry secrets (required)
+      GHCR_USERNAME:
+        required: true
+      GHCR_PAT:
+        required: true
+
+jobs:
+  # Build y Deploy en paralelo máximo
+  express-build-deploy:
+    name: Express Build & Deploy
+    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 25
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # Shallow clone para velocidad
+
+      # ========================================
+      # SETUP ULTRA-RÁPIDO
+      # ========================================
+      - name: Set up GraalVM (Cached)
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          cache: 'maven'
+
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.cache/native-image
+            target/
+            build/
+          key: ${{ runner.os }}-production-${{ hashFiles('**/pom.xml', '**/build.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-production-
+
+      # ========================================
+      # BUILD NATIVO OPTIMIZADO
+      # ========================================
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No build tool found"
+            exit 1
+          fi
+
+      - name: Ultra-fast Maven build
+        if: steps.build-tool.outputs.tool == 'maven'
+        run: |
+          # Build nativo ultra-optimizado
+          ./mvnw clean package -Pnative \
+            -DskipTests \
+            -Dmaven.test.skip=true \
+            -Dquarkus.package.jar.enabled=false \
+            -Dquarkus.native.enable-reports=false \
+            -Dquarkus.native.enable-vm-inspection=false \
+            -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback,-H:-CheckToolchain" \
+            -T 1C \
+            --no-transfer-progress \
+            -q
+
+      - name: Ultra-fast Gradle build
+        if: steps.build-tool.outputs.tool == 'gradle'
+        run: |
+          # Build nativo ultra-optimizado
+          ./gradlew clean build \
+            -x test -x javadoc -x checkstyleMain -x checkstyleTest \
+            --parallel --build-cache --configuration-cache \
+            --no-daemon --quiet \
+            -Dquarkus.package.jar.enabled=false \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=true \
+            -Dquarkus.native.enable-reports=false \
+            -Dquarkus.native.enable-vm-inspection=false \
+            -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback,-H:-CheckToolchain"
+
+      # ========================================
+      # DOCKER BUILD Y PUSH SIMULTÁNEO
+      # ========================================
+      - name: Generate version
+        id: version
+        run: |
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          VERSION="main-${SHORT_HASH}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+      - name: Prepare Docker build
+        run: |
+          mkdir -p build
+          RUNNER_FILE=$(find . -maxdepth 3 -type f -name '*-runner' -print -quit)
+          if [ -z "$RUNNER_FILE" ]; then
+            echo "ERROR: No native runner found"
+            exit 1
+          fi
+          cp -v "$RUNNER_FILE" build/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build and push image (Express)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./src/main/docker/Dockerfile.native
+          push: true
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ghcr.io/${{ github.repository_owner }}/$(basename ${{ github.repository }}):${{ steps.version.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            PRODUCTION=true
+
+      # ========================================
+      # DEPLOY DIRECTO
+      # ========================================
+      - name: Deploy to production
+        run: |
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${{ steps.version.outputs.version }}"
+          
+          # Setup SSH
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # Deploy directo
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << 'DEPLOY'
+          set -e
+          
+          PROJECT_NAME="${{ github.repository }}"
+          PROJECT_NAME=$(basename "$PROJECT_NAME")
+          DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}/${PROJECT_NAME}"
+          IMAGE_URI="ghcr.io/${{ github.repository_owner }}/${PROJECT_NAME}:${{ steps.version.outputs.version }}"
+          
+          echo "🚀 Express deployment starting..."
+          echo "Project: $PROJECT_NAME"
+          echo "Image: $IMAGE_URI"
+          echo "Path: $DEPLOY_PATH"
+          
+          # Crear directorio si no existe
+          mkdir -p "$DEPLOY_PATH"
+          cd "$DEPLOY_PATH"
+          
+          # Login a GHCR
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+          
+          # Variables de entorno
+          export DOCKER_IMAGE="$IMAGE_URI"
+          export PROJECT_NAME="$PROJECT_NAME"
+          export DB_USERNAME="${{ secrets.DB_USERNAME }}"
+          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+          export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+          export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+          export JWT_ISSUER="${{ secrets.JWT_ISSUER }}"
+          export MAILER_FROM="${{ secrets.MAILER_FROM }}"
+          export SMTP_HOST="${{ secrets.SMTP_HOST }}"
+          export SMTP_PORT="${{ secrets.SMTP_PORT }}"
+          export EMAIL_USERNAME="${{ secrets.EMAIL_USERNAME }}"
+          export EMAIL_PASSWORD="${{ secrets.EMAIL_PASSWORD }}"
+          export CORS_ORIGINS="${{ secrets.CORS_ORIGINS }}"
+          
+          # Determinar comando de compose
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          else
+            COMPOSE_CMD="docker-compose"
+          fi
+          
+          # Deploy express
+          echo "⬇️ Pulling new image..."
+          docker pull "$IMAGE_URI"
+          
+          echo "🔄 Updating containers..."
+          $COMPOSE_CMD down --remove-orphans || true
+          $COMPOSE_CMD up -d --force-recreate
+          
+          echo "🧹 Cleaning up..."
+          docker image prune -f --filter "dangling=true"
+          
+          echo "✅ Express deployment completed!"
+          $COMPOSE_CMD ps
+          DEPLOY
+
+      # ========================================
+      # SAVE CACHE
+      # ========================================
+      - name: Save build cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.cache/native-image
+            target/
+            build/
+          key: ${{ runner.os }}-production-${{ hashFiles('**/pom.xml', '**/build.gradle*') }}
+
+      - name: Express Pipeline Summary
+        if: always()
+        run: |
+          echo "================================"
+          echo "🚀 EXPRESS PIPELINE COMPLETED!"
+          echo "================================"
+          echo ""
+          echo "⏱️  Total time: ~20-25 minutes"
+          echo "🏗️  Build: Native optimized"
+          echo "📦 Image: ghcr.io/${{ github.repository_owner }}/$(basename ${{ github.repository }}):${{ steps.version.outputs.version }}"
+          echo "🚀 Deploy: Direct to production"
+          echo ""
+          echo "✅ Production deployment successful!"

@@ -108,7 +108,7 @@ jobs:
             echo "Pipeline: PR - Tests rápidos solamente"
             
           elif [ "${{ github.ref_name }}" = "main" ]; then
-            # PRODUCCIÓN: Build y deploy rápido
+            # PRODUCCIÓN: Build y deploy ultra-rápido
             echo "is_production=true" >> $GITHUB_OUTPUT
             echo "is_development=false" >> $GITHUB_OUTPUT
             echo "is_pr=false" >> $GITHUB_OUTPUT
@@ -120,7 +120,7 @@ jobs:
             
             # Usar secrets de producción (no como outputs por seguridad)
             echo "use_prod_secrets=true" >> $GITHUB_OUTPUT
-            echo "Pipeline: PRODUCCIÓN - Build y deploy rápido"
+            echo "Pipeline: PRODUCCIÓN - Build nativo optimizado y deploy directo"
             
           else
             # DESARROLLO: Pipeline completo
@@ -183,6 +183,7 @@ jobs:
       build_type: ${{ needs.setup.outputs.is_production == 'true' && 'native' || 'jvm' }}
       use_ghcr: true
       push_to_registry: true
+      production_optimized: ${{ needs.setup.outputs.is_production == 'true' }}
     secrets:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}

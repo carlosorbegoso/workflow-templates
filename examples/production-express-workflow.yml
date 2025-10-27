@@ -1,0 +1,41 @@
+name: Production Express Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  production-express:
+    # Solo para main branch - ultra rápido
+    if: github.ref == 'refs/heads/main'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/production-express.yml@main
+    secrets:
+      # PRODUCCIÓN (todos obligatorios para express)
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      
+      # BASE DE DATOS
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      
+      # JWT/AUTH
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      JWT_ISSUER: ${{ secrets.JWT_ISSUER }}
+      
+      # EMAIL/SMTP
+      MAILER_FROM: ${{ secrets.MAILER_FROM }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      
+      # CORS
+      CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+      
+      # REGISTRY
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}

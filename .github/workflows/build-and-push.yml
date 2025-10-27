@@ -18,6 +18,11 @@ on:
         required: false
         default: false
         type: boolean
+      production_optimized:
+        description: 'Enable production optimizations for faster builds'
+        required: false
+        default: false
+        type: boolean
     secrets:
       DOCKER_USERNAME:
         required: false
@@ -37,11 +42,11 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.production_optimized && 'ubuntu-latest-8-cores' || 'ubuntu-latest' }}
     outputs:
       docker-image: ${{ steps.docker-image.outputs.full-image }}
       image-version: ${{ steps.version.outputs.version }}
-    timeout-minutes: ${{ inputs.build_type == 'native' && 60 || 20 }}
+    timeout-minutes: ${{ inputs.build_type == 'native' && (inputs.production_optimized && 30 || 60) || 20 }}
     
     steps:
       - name: Checkout code
@@ -67,18 +72,38 @@ jobs:
           distribution: 'temurin'
 
       - name: Cache Maven packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ runner.os }}-maven-${{ inputs.build_type }}-${{ hashFiles('**/pom.xml', '**/maven-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-${{ inputs.build_type }}-
+            ${{ runner.os }}-maven-
 
       - name: Cache Gradle packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.gradle/caches
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle*') }}
-          restore-keys: ${{ runner.os }}-gradle
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle/
+          key: ${{ runner.os }}-gradle-${{ inputs.build_type }}-${{ hashFiles('**/build.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-${{ inputs.build_type }}-
+            ${{ runner.os }}-gradle-
+
+      - name: Cache GraalVM Native Image cache (Production)
+        if: inputs.build_type == 'native' && inputs.production_optimized
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/native-image
+            ~/.graalvm
+          key: ${{ runner.os }}-graalvm-${{ hashFiles('**/pom.xml', '**/build.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-graalvm-
 
       - name: Detect build tool
         id: build-tool
@@ -97,9 +122,22 @@ jobs:
       # ========================================
       - name: Build with Maven (Native)
         if: steps.build-tool.outputs.tool == 'maven' && inputs.build_type == 'native'
-        timeout-minutes: 50
+        timeout-minutes: ${{ inputs.production_optimized && 25 || 50 }}
         run: |
-          ./mvnw clean package -Pnative -DskipTests
+          # Optimizaciones para producción
+          if [ "${{ inputs.production_optimized }}" = "true" ]; then
+            # Build nativo optimizado para producción
+            ./mvnw clean package -Pnative -DskipTests \
+              -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2" \
+              -Dquarkus.native.enable-reports=false \
+              -Dquarkus.native.enable-vm-inspection=false \
+              -Dmaven.test.skip=true \
+              -Dquarkus.package.jar.enabled=false \
+              -T 1C
+          else
+            # Build nativo estándar
+            ./mvnw clean package -Pnative -DskipTests
+          fi
 
       - name: Build with Maven (JVM)
         if: steps.build-tool.outputs.tool == 'maven' && inputs.build_type == 'jvm'
@@ -109,14 +147,34 @@ jobs:
 
       - name: Build with Gradle (Native)
         if: steps.build-tool.outputs.tool == 'gradle' && inputs.build_type == 'native'
-        timeout-minutes: 50
+        timeout-minutes: ${{ inputs.production_optimized && 25 || 50 }}
         run: |
-          ./gradlew clean build \
-            -x test \
-            -Dquarkus.package.jar.enabled=false \
-            -Dquarkus.native.enabled=true \
-            -Dquarkus.native.container-build=true \
-            -Dquarkus.native.additional-build-args="--gc=serial"
+          # Optimizaciones para producción
+          if [ "${{ inputs.production_optimized }}" = "true" ]; then
+            # Build nativo optimizado para producción
+            ./gradlew clean build \
+              -x test \
+              -x javadoc \
+              -x checkstyleMain \
+              -x checkstyleTest \
+              --parallel \
+              --build-cache \
+              --configuration-cache \
+              -Dquarkus.package.jar.enabled=false \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true \
+              -Dquarkus.native.enable-reports=false \
+              -Dquarkus.native.enable-vm-inspection=false \
+              -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback"
+          else
+            # Build nativo estándar
+            ./gradlew clean build \
+              -x test \
+              -Dquarkus.package.jar.enabled=false \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true \
+              -Dquarkus.native.additional-build-args="--gc=serial"
+          fi
 
       - name: Build with Gradle (JVM)
         if: steps.build-tool.outputs.tool == 'gradle' && inputs.build_type == 'jvm'
@@ -312,11 +370,15 @@ jobs:
           load: ${{ !inputs.push_to_registry }}
           tags: ${{ steps.docker-image.outputs.full-image }}
           labels: ${{ steps.meta.outputs.labels }}
+          platforms: ${{ inputs.production_optimized && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             BUILD_DATE=${{ steps.version.outputs.build-date }}
             VERSION=${{ steps.version.outputs.version }}
             VCS_REF=${{ steps.version.outputs.short-hash }}
             BUILD_TYPE=${{ steps.version.outputs.build-type }}
+            PRODUCTION=${{ inputs.production_optimized }}
 
       - name: Save image and upload artifact (no push)
         if: ${{ !inputs.push_to_registry }}
