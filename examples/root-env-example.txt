@@ -1,0 +1,48 @@
+# Ejemplo de ~/.env (archivo en la raíz del usuario)
+# Copia este contenido a ~/.env en tu servidor
+
+# ==============================================
+# VARIABLES COMPARTIDAS ENTRE TODAS LAS APPS
+# ==============================================
+
+# Base de datos principal
+DATABASE_URL=postgresql://yapehubuser:Yp#2K8$mLq9Rx@5nT@localhost:5432/yape_hub
+DB_USERNAME=yapehubuser
+DB_PASSWORD=Yp#2K8$mLq9Rx@5nT
+
+# JWT/Auth (compartido entre microservicios)
+JWT_SECRET=5e8c66c4c559c3ef480050e418ef0a145700a34264d576f7c712b39cc6e0c7cf
+JWT_ISSUER=https://api.yape-hub.com
+
+# Email/SMTP (compartido)
+MAILER_FROM=noreply@yape-hub.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+EMAIL_USERNAME=tu-email@gmail.com
+EMAIL_PASSWORD=tu_app_password
+
+# CORS (compartido)
+CORS_ORIGINS=https://yape-hub.com,https://www.yape-hub.com,http://localhost:3000
+
+# Registry (para todos los servicios)
+GHCR_USERNAME=tu-usuario-github
+GHCR_PAT=ghp_tu_personal_access_token
+
+# ==============================================
+# VARIABLES ESPECÍFICAS POR SERVICIO
+# ==============================================
+
+# Yape Hub
+APP_VERSION=main-20251027-060317
+
+# Otros servicios (ejemplos)
+# PAYMENT_SERVICE_URL=http://localhost:8081
+# NOTIFICATION_SERVICE_URL=http://localhost:8082
+# REDIS_URL=redis://localhost:6379
+
+# ==============================================
+# CONFIGURACIÓN DE ENTORNO
+# ==============================================
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+DEBUG=false
