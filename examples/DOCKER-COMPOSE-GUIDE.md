@@ -46,7 +46,16 @@ htop
 
 ## 🔧 Cómo usar
 
-### **1. Copia el archivo apropiado:**
+### **1. Configura el .env en la raíz:**
+```bash
+# Copia el ejemplo a la raíz del usuario
+cp root-env-example.txt ~/.env
+
+# Edita con tus valores reales
+nano ~/.env
+```
+
+### **2. Copia el archivo apropiado:**
 ```bash
 # Para servidor pequeño
 cp yape-hub-docker-compose-small.yml docker-compose.yml
