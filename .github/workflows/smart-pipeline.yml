@@ -147,7 +147,7 @@ jobs:
     name: Run Tests
     needs: setup
     if: needs.setup.outputs.run_tests == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/development/test.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/development-test.yml@main
     with:
       java_version: '21'
       run_integration_tests: ${{ needs.setup.outputs.is_development == 'true' }}
@@ -157,7 +157,7 @@ jobs:
     name: Quality Checks
     needs: [setup, test]
     if: needs.setup.outputs.run_quality == 'true' && (needs.test.result == 'success' || needs.test.result == 'skipped')
-    uses: carlosorbegoso/workflow-templates/.github/workflows/development/quality-check.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/development-quality-check.yml@main
     with:
       sonar_enabled: true
     secrets:
