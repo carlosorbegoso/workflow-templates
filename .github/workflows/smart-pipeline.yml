@@ -147,7 +147,7 @@ jobs:
     name: Run Tests
     needs: setup
     if: needs.setup.outputs.run_tests == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/test.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/development/test.yml@main
     with:
       java_version: '21'
       run_integration_tests: ${{ needs.setup.outputs.is_development == 'true' }}
@@ -157,7 +157,7 @@ jobs:
     name: Quality Checks
     needs: [setup, test]
     if: needs.setup.outputs.run_quality == 'true' && (needs.test.result == 'success' || needs.test.result == 'skipped')
-    uses: carlosorbegoso/workflow-templates/.github/workflows/quality-check.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/development/quality-check.yml@main
     with:
       sonar_enabled: true
     secrets:
@@ -168,7 +168,7 @@ jobs:
     name: Security Scan
     needs: setup
     if: needs.setup.outputs.run_security == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/security-scan.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/development/security-scan.yml@main
     with:
       scan_dependencies: true
       scan_code: true
@@ -193,7 +193,7 @@ jobs:
     name: Deploy Application
     needs: [setup, build-and-push]
     if: needs.setup.outputs.run_deploy == 'true' && needs.build-and-push.result == 'success'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/shared/deploy.yml@main
     with:
       image_version: ${{ needs.build-and-push.outputs.image-version }}
       environment: ${{ needs.setup.outputs.is_production == 'true' && 'production' || 'development' }}

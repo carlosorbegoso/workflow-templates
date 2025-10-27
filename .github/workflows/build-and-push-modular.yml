@@ -41,7 +41,7 @@ jobs:
   native-build:
     name: Native Build
     if: inputs.build_type == 'native'
-    uses: ./.github/workflows/build-native.yml
+    uses: ./.github/workflows/components/build-native.yml
     with:
       production_optimized: ${{ inputs.production_optimized }}
 
@@ -49,14 +49,14 @@ jobs:
   jvm-build:
     name: JVM Build
     if: inputs.build_type == 'jvm'
-    uses: ./.github/workflows/build-jvm-optimized.yml
+    uses: ./.github/workflows/components/build-jvm-optimized.yml
 
   # Docker build y push
   docker-build:
     name: Docker Build & Push
     needs: [native-build, jvm-build]
     if: always() && (needs.native-build.result == 'success' || needs.jvm-build.result == 'success')
-    uses: ./.github/workflows/docker-build-push.yml
+    uses: ./.github/workflows/components/docker-build-push.yml
     with:
       build_type: ${{ inputs.build_type }}
       artifact_name: ${{ inputs.build_type == 'native' && needs.native-build.outputs.artifact-name || needs.jvm-build.outputs.artifact-name }}
