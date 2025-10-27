@@ -163,7 +163,17 @@ jobs:
             echo "ERROR: No native runner found"
             exit 1
           fi
-          cp -v "$RUNNER_FILE" build/
+          
+          # Solo copiar si no está ya en build/
+          if [[ "$RUNNER_FILE" != build/* ]]; then
+            cp -v "$RUNNER_FILE" build/
+            echo "Runner copied to build/"
+          else
+            echo "Runner already in build/ directory"
+          fi
+          
+          # Verificar que el runner esté disponible
+          ls -la build/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

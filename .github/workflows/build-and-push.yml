@@ -350,7 +350,17 @@ jobs:
               exit 1
             fi
             echo "Found runner: $RUNNER_FILE"
-            cp -v "$RUNNER_FILE" build/
+            
+            # Solo copiar si no está ya en build/
+            if [[ "$RUNNER_FILE" != build/* ]]; then
+              cp -v "$RUNNER_FILE" build/
+              echo "Runner copied to build/"
+            else
+              echo "Runner already in build/ directory"
+            fi
+            
+            # Verificar que el runner esté en build/
+            ls -la build/
           else
             # Para build JVM, copiar JARs
             find . -maxdepth 3 -name '*.jar' -type f -exec cp -v {} build/ \;
