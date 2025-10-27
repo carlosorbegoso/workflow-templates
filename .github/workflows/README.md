@@ -1,36 +1,37 @@
 # 📁 Estructura de Workflows
 
-Esta carpeta contiene todos los workflows organizados por propósito y ambiente.
+Esta carpeta contiene todos los workflows organizados por nomenclatura de prefijos.
 
-## 🗂️ Organización
+## 🗂️ Organización por Prefijos
 
 ```
 .github/workflows/
-├── 📁 components/          # Componentes reutilizables
-│   ├── build-native.yml           # Build nativo optimizado
-│   ├── build-jvm-optimized.yml    # Build JVM optimizado  
-│   ├── docker-build-push.yml      # Docker build y push
-│   ├── build.yml                  # Build nativo básico
-│   └── build-jvm.yml              # Build JVM básico
+├── 🎯 [Workflows principales]           # Workflows de entrada
+│   ├── smart-pipeline.yml              # Pipeline adaptativo principal
+│   ├── build-and-push.yml              # Build y push original
+│   └── build-and-push-modular.yml      # Build y push modular
 │
-├── 📁 production/          # Solo para producción
-│   ├── production-express.yml     # Deploy express (~25 min)
-│   └── production-parallel.yml    # Deploy turbo (~15-20 min)
+├── 🧩 component-*                      # Componentes reutilizables
+│   ├── component-build-native.yml      # Build nativo optimizado
+│   ├── component-build-jvm.yml         # Build JVM optimizado  
+│   ├── component-docker-push.yml       # Docker build y push
+│   ├── component-build-native-basic.yml # Build nativo básico
+│   └── component-build-jvm-basic.yml   # Build JVM básico
 │
-├── 📁 development/         # Para desarrollo y testing
-│   ├── test.yml                   # Tests unitarios e integración
-│   ├── quality-check.yml          # SonarQube, linting, etc.
-│   └── security-scan.yml          # Escaneo de seguridad
+├── 🚀 production-*                     # Solo para producción
+│   ├── production-express.yml          # Deploy express (~25 min)
+│   ├── production-parallel.yml         # Deploy turbo (~15-20 min)
+│   └── production-deploy.yml           # Deploy básico
 │
-├── 📁 shared/             # Workflows compartidos
-│   ├── deploy.yml                 # Deploy genérico
-│   ├── push.yml                   # Push a registry
-│   └── validate-deployment.yml    # Validaciones
+├── 🔧 development-*                    # Para desarrollo y testing
+│   ├── development-test.yml            # Tests unitarios e integración
+│   ├── development-quality-check.yml   # SonarQube, linting, etc.
+│   └── development-security-scan.yml   # Escaneo de seguridad
 │
-└── 📄 [Workflows principales]     # Workflows de entrada
-    ├── smart-pipeline.yml         # Pipeline adaptativo principal
-    ├── build-and-push.yml         # Build y push original
-    └── build-and-push-modular.yml # Build y push modular
+└── 🤝 shared-*                        # Workflows compartidos
+    ├── shared-deploy.yml               # Deploy genérico
+    ├── shared-push.yml                 # Push a registry
+    └── shared-validate-deployment.yml  # Validaciones
 ```
 
 ## 🎯 Workflows Principales (Puntos de entrada)
@@ -55,24 +56,24 @@ uses: carlosorbegoso/workflow-templates/.github/workflows/build-and-push-modular
 
 ## 🧩 Componentes Reutilizables
 
-### **components/build-native.yml**
+### **component-build-native.yml**
 Build nativo con GraalVM optimizado.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/components/build-native.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/component-build-native.yml@main
 with:
   production_optimized: true
 ```
 
-### **components/build-jvm-optimized.yml**
+### **component-build-jvm.yml**
 Build JVM rápido y optimizado.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/components/build-jvm-optimized.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/component-build-jvm.yml@main
 ```
 
-### **components/docker-build-push.yml**
+### **component-docker-push.yml**
 Docker build y push especializado.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/components/docker-build-push.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/component-docker-push.yml@main
 with:
   build_type: "native"
   artifact_name: "my-app-native-runner"
@@ -81,43 +82,43 @@ with:
 
 ## 🚀 Workflows de Producción
 
-### **production/production-express.yml**
+### **production-express.yml**
 Deploy express para hotfixes urgentes.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/production/production-express.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/production-express.yml@main
 ```
 
-### **production/production-parallel.yml**
+### **production-parallel.yml**
 Deploy turbo con paralelización máxima.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/production/production-parallel.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/production-parallel.yml@main
 ```
 
 ## 🔧 Workflows de Desarrollo
 
-### **development/test.yml**
+### **development-test.yml**
 Tests unitarios e integración.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/development/test.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/development-test.yml@main
 with:
   java_version: '21'
   run_integration_tests: true
 ```
 
-### **development/quality-check.yml**
+### **development-quality-check.yml**
 Análisis de calidad de código.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/development/quality-check.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/development-quality-check.yml@main
 with:
   sonar_enabled: true
 secrets:
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 ```
 
-### **development/security-scan.yml**
+### **development-security-scan.yml**
 Escaneo de seguridad y vulnerabilidades.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/development/security-scan.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/development-security-scan.yml@main
 with:
   scan_dependencies: true
   scan_code: true

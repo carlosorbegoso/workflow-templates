@@ -168,7 +168,7 @@ jobs:
     name: Security Scan
     needs: setup
     if: needs.setup.outputs.run_security == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/development/security-scan.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/development-security-scan.yml@main
     with:
       scan_dependencies: true
       scan_code: true
@@ -193,7 +193,7 @@ jobs:
     name: Deploy Application
     needs: [setup, build-and-push]
     if: needs.setup.outputs.run_deploy == 'true' && needs.build-and-push.result == 'success'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/shared/deploy.yml@main
+    uses: carlosorbegoso/workflow-templates/.github/workflows/shared-deploy.yml@main
     with:
       image_version: ${{ needs.build-and-push.outputs.image-version }}
       environment: ${{ needs.setup.outputs.is_production == 'true' && 'production' || 'development' }}
