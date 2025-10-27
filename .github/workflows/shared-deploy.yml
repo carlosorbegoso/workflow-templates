@@ -300,6 +300,10 @@ jobs:
           export APP_NAME="$PROJECT_NAME"  # Para compatibilidad con docker-compose existentes
           export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
           
+          # Extraer versión de la imagen para APP_VERSION
+          APP_VERSION=$(echo "$DOCKER_IMAGE" | sed 's/.*://')
+          export APP_VERSION="$APP_VERSION"
+          
           # Variables de base de datos
           export DB_USERNAME='${{ secrets.DB_USERNAME }}'
           export DB_PASSWORD='${{ secrets.DB_PASSWORD }}'
@@ -318,6 +322,7 @@ jobs:
           
           echo "Environment variables exported:"
           echo "  DOCKER_IMAGE=$DOCKER_IMAGE"
+          echo "  APP_VERSION=$APP_VERSION"
           echo "  PROJECT_NAME=$PROJECT_NAME"
           echo "  APP_NAME=$APP_NAME"
           echo "  ENVIRONMENT=${{ inputs.environment }}"
