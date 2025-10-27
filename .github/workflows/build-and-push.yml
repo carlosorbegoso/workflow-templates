@@ -42,7 +42,7 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: ${{ inputs.production_optimized && 'ubuntu-latest-8-cores' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     outputs:
       docker-image: ${{ steps.docker-image.outputs.full-image }}
       image-version: ${{ steps.version.outputs.version }}

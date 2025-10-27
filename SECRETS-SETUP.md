@@ -2,6 +2,18 @@
 
 Este documento lista todos los secrets necesarios para el pipeline CI/CD de Yape Hub.
 
+## 🚀 Pipelines Disponibles
+
+### 1. **Smart Pipeline** (Recomendado)
+- **Desarrollo**: Tests + Calidad + Build JVM + Deploy (~15 min)
+- **Producción**: Build Nativo Optimizado + Deploy (~25 min)
+- **PR**: Solo tests rápidos (~5 min)
+
+### 2. **Production Express** (Ultra-rápido)
+- **Solo main**: Build Nativo + Deploy directo (~20 min)
+- **Optimizado**: Usa runners de 8 cores + cache avanzado
+- **Ideal para**: Hotfixes y deploys urgentes
+
 ## Secrets Obligatorios
 
 ### 🏗️ Infraestructura (Producción)
@@ -116,3 +128,43 @@ Para validar que todos los secrets están configurados correctamente, ejecuta:
 - ✅ Rota los secrets regularmente
 - ❌ NUNCA hardcodees secrets en el código
 - ❌ NUNCA subas archivos .env al repositorio
+## 🚀 Op
+timizaciones de Producción
+
+### Build Nativo Optimizado
+- **Runners**: 8 cores para builds más rápidos
+- **Cache**: GraalVM + Maven/Gradle + Docker layers
+- **Flags**: `-O2`, `--no-fallback`, `--gc=serial`
+- **Tiempo**: 20-25 min (vs 45-60 min estándar)
+
+### Docker Optimizado
+- **Platform**: Solo linux/amd64 en producción
+- **Cache**: GitHub Actions cache para layers
+- **Build args**: Optimizaciones específicas de producción
+
+### Deploy Express
+- **SSH**: Conexión directa sin artifacts
+- **Compose**: Detección automática de versión
+- **Cleanup**: Limpieza automática de imágenes viejas
+
+## 📊 Comparación de Tiempos
+
+| Pipeline | Desarrollo | Producción | PR |
+|----------|------------|------------|-----|
+| **Smart** | ~15 min | ~25 min | ~5 min |
+| **Express** | N/A | ~20 min | N/A |
+| **Estándar** | ~25 min | ~45 min | ~10 min |
+
+## 🎯 Cuándo usar cada pipeline
+
+### Smart Pipeline
+```yaml
+# Para desarrollo normal y producción estable
+uses: carlosorbegoso/workflow-templates/.github/workflows/smart-pipeline.yml@main
+```
+
+### Production Express
+```yaml
+# Para hotfixes y deploys urgentes (solo main)
+uses: carlosorbegoso/workflow-templates/.github/workflows/production-express.yml@main
+```

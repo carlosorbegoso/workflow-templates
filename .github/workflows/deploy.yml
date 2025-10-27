@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      environment:
+        description: 'Deployment environment (production or development)'
+        required: false
+        default: 'production'
+        type: string
     secrets:
       SSH_HOST:
         required: true
@@ -26,10 +31,38 @@ on:
         required: false
       GHCR_PAT:
         required: false
+      
+      # Database secrets
       DB_USERNAME:
         required: false
       DB_PASSWORD:
         required: false
+      DATABASE_URL:
+        required: false
+      
+      # JWT/Auth secrets
+      JWT_SECRET:
+        required: false
+      JWT_ISSUER:
+        required: false
+      
+      # Email/SMTP secrets
+      MAILER_FROM:
+        required: false
+      SMTP_HOST:
+        required: false
+      SMTP_PORT:
+        required: false
+      EMAIL_USERNAME:
+        required: false
+      EMAIL_PASSWORD:
+        required: false
+      
+      # CORS configuration
+      CORS_ORIGINS:
+        required: false
+      
+      # Registry secrets (legacy)
       REGISTRY_HOST:
         required: false
       REGISTRY_USERNAME:
@@ -270,13 +303,26 @@ jobs:
           # Variables de base de datos
           export DB_USERNAME='${{ secrets.DB_USERNAME }}'
           export DB_PASSWORD='${{ secrets.DB_PASSWORD }}'
-          export DB_JDBC_URL="${DB_JDBC_URL:-jdbc:postgresql://localhost:5432/${PROJECT_NAME}}"
+          export DATABASE_URL='${{ secrets.DATABASE_URL }}'
+          export DB_JDBC_URL="${DATABASE_URL:-jdbc:postgresql://localhost:5432/${PROJECT_NAME}}"
+          
+          # Variables de aplicación
+          export JWT_SECRET='${{ secrets.JWT_SECRET }}'
+          export JWT_ISSUER='${{ secrets.JWT_ISSUER }}'
+          export MAILER_FROM='${{ secrets.MAILER_FROM }}'
+          export SMTP_HOST='${{ secrets.SMTP_HOST }}'
+          export SMTP_PORT='${{ secrets.SMTP_PORT }}'
+          export EMAIL_USERNAME='${{ secrets.EMAIL_USERNAME }}'
+          export EMAIL_PASSWORD='${{ secrets.EMAIL_PASSWORD }}'
+          export CORS_ORIGINS='${{ secrets.CORS_ORIGINS }}'
           
           echo "Environment variables exported:"
           echo "  DOCKER_IMAGE=$DOCKER_IMAGE"
           echo "  PROJECT_NAME=$PROJECT_NAME"
           echo "  APP_NAME=$APP_NAME"
+          echo "  ENVIRONMENT=${{ inputs.environment }}"
           echo "  DB_USERNAME=$DB_USERNAME"
+          echo "  DATABASE_URL=${DATABASE_URL:0:20}..." # Solo mostrar inicio por seguridad
           echo ""
           
           PUSH_TO_REGISTRY='${{ inputs.push_to_registry }}'
