@@ -107,7 +107,7 @@ jobs:
             echo "run_deploy=false" >> $GITHUB_OUTPUT
             echo "Pipeline: PR - Tests rápidos solamente"
             
-          elif [ "${{ github.ref_name }}" = "main" ]; then
+          elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
             # PRODUCCIÓN: Build y deploy ultra-rápido
             echo "is_production=true" >> $GITHUB_OUTPUT
             echo "is_development=false" >> $GITHUB_OUTPUT
