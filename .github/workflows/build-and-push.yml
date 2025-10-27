@@ -350,21 +350,46 @@ jobs:
               exit 1
             fi
             echo "Found runner: $RUNNER_FILE"
+            echo "Runner absolute path: $(realpath "$RUNNER_FILE" 2>/dev/null || echo "$RUNNER_FILE")"
             
             # Solo copiar si no está ya en build/
-            if [[ "$RUNNER_FILE" != build/* ]]; then
+            RUNNER_DIR=$(dirname "$RUNNER_FILE")
+            RUNNER_NAME=$(basename "$RUNNER_FILE")
+            
+            echo "Runner directory: $RUNNER_DIR"
+            echo "Runner name: $RUNNER_NAME"
+            
+            if [ "$RUNNER_DIR" = "./build" ] || [ "$RUNNER_DIR" = "build" ]; then
+              echo "Runner already in build/ directory: $RUNNER_FILE"
+              echo "Skipping copy operation"
+            else
+              echo "Copying runner from $RUNNER_FILE to build/"
+              # Usar una copia más segura
+              if [ -f "build/$RUNNER_NAME" ]; then
+                echo "Target file build/$RUNNER_NAME already exists, removing it first"
+                rm -f "build/$RUNNER_NAME"
+              fi
               cp -v "$RUNNER_FILE" build/
               echo "Runner copied to build/"
-            else
-              echo "Runner already in build/ directory"
             fi
             
             # Verificar que el runner esté en build/
             ls -la build/
           else
             # Para build JVM, copiar JARs
-            find . -maxdepth 3 -name '*.jar' -type f -exec cp -v {} build/ \;
-            echo "JARs copied to build/"
+            echo "Looking for JAR files..."
+            find . -maxdepth 3 -name '*.jar' -type f | while read jar_file; do
+              jar_name=$(basename "$jar_file")
+              jar_dir=$(dirname "$jar_file")
+              
+              if [ "$jar_dir" = "./build" ] || [ "$jar_dir" = "build" ]; then
+                echo "JAR already in build/: $jar_file"
+              else
+                echo "Copying JAR: $jar_file -> build/$jar_name"
+                cp -v "$jar_file" build/
+              fi
+            done
+            echo "JARs processed"
             ls -la build/
           fi
 
