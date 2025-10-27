@@ -77,8 +77,8 @@ jobs:
       - name: Generate version
         id: version
         run: |
-          SHORT_HASH=$(git rev-parse --short HEAD)
-          VERSION="main-${SHORT_HASH}"
+          TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')
+          VERSION="main-${TIMESTAMP}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
 

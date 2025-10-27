@@ -41,6 +41,7 @@ jobs:
         id: version
         run: |
           # Generar versión consistente con el deploy
+          TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')
           SHORT_HASH=$(git rev-parse --short HEAD)
           BRANCH_NAME="${{ github.ref_name }}"
           BUILD_DATE=$(date -u +'%Y%m%d')
@@ -52,11 +53,11 @@ jobs:
             # Si hay un tag exacto, usarlo
             VERSION="$GIT_TAG"
           elif [ "$BRANCH_NAME" = "main" ]; then
-            # Para main, usar formato main-hash
-            VERSION="main-${SHORT_HASH}"
+            # Para main, usar timestamp para producción
+            VERSION="main-${TIMESTAMP}"
           else
-            # Para otras ramas, usar formato rama-hash
-            VERSION="${BRANCH_NAME}-${SHORT_HASH}"
+            # Para otras ramas, usar timestamp + hash corto
+            VERSION="${BRANCH_NAME}-${TIMESTAMP}-${SHORT_HASH}"
           fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT

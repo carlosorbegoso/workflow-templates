@@ -58,21 +58,22 @@ jobs:
       - name: Generate version
         id: version
         run: |
+          TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')
           SHORT_HASH=$(git rev-parse --short HEAD)
           BRANCH_NAME="${{ github.ref_name }}"
           BUILD_TYPE="${{ inputs.build_type }}"
           
           if [ "$BRANCH_NAME" = "main" ] || [ "$BRANCH_NAME" = "master" ]; then
             if [ "$BUILD_TYPE" = "jvm" ]; then
-              VERSION="main-jvm-${SHORT_HASH}"
+              VERSION="main-jvm-${TIMESTAMP}"
             else
-              VERSION="main-${SHORT_HASH}"
+              VERSION="main-${TIMESTAMP}"
             fi
           else
             if [ "$BUILD_TYPE" = "jvm" ]; then
-              VERSION="${BRANCH_NAME}-jvm-${SHORT_HASH}"
+              VERSION="${BRANCH_NAME}-jvm-${TIMESTAMP}-${SHORT_HASH}"
             else
-              VERSION="${BRANCH_NAME}-${SHORT_HASH}"
+              VERSION="${BRANCH_NAME}-${TIMESTAMP}-${SHORT_HASH}"
             fi
           fi
           
