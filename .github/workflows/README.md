@@ -126,19 +126,19 @@ with:
 
 ## 🤝 Workflows Compartidos
 
-### **shared/deploy.yml**
+### **shared-deploy.yml**
 Deploy genérico que funciona para cualquier ambiente.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/shared/deploy.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/shared-deploy.yml@main
 with:
   image_version: "v1.0.0"
   environment: "production"
 ```
 
-### **shared/validate-deployment.yml**
+### **shared-validate-deployment.yml**
 Validaciones de deployment.
 ```yaml
-uses: carlosorbegoso/workflow-templates/.github/workflows/shared/validate-deployment.yml@main
+uses: carlosorbegoso/workflow-templates/.github/workflows/shared-validate-deployment.yml@main
 with:
   allowed_branches: "main,master,develop"
   require_production_branch: true
