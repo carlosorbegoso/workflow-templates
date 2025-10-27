@@ -299,7 +299,8 @@ jobs:
       - name: Generate version from git
         id: version
         run: |
-          # Generar versión consistente
+          # Generar versión con timestamp
+          TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')
           SHORT_HASH=$(git rev-parse --short HEAD)
           BRANCH_NAME="${{ github.ref_name }}"
           BUILD_DATE=$(date -u +'%Y%m%d')
@@ -316,24 +317,25 @@ jobs:
               VERSION="$GIT_TAG"
             fi
           elif [ "$BRANCH_NAME" = "main" ]; then
-            # Para main, usar formato main-hash
+            # Para main, usar timestamp para producción
             if [ "$BUILD_TYPE" = "jvm" ]; then
-              VERSION="main-jvm-${SHORT_HASH}"
+              VERSION="main-jvm-${TIMESTAMP}"
             else
-              VERSION="main-${SHORT_HASH}"
+              VERSION="main-${TIMESTAMP}"
             fi
           else
-            # Para otras ramas, usar formato rama-hash
+            # Para otras ramas, usar timestamp + hash corto
             if [ "$BUILD_TYPE" = "jvm" ]; then
-              VERSION="${BRANCH_NAME}-jvm-${SHORT_HASH}"
+              VERSION="${BRANCH_NAME}-jvm-${TIMESTAMP}-${SHORT_HASH}"
             else
-              VERSION="${BRANCH_NAME}-${SHORT_HASH}"
+              VERSION="${BRANCH_NAME}-${TIMESTAMP}-${SHORT_HASH}"
             fi
           fi
           
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "build-date=${BUILD_DATE}" >> $GITHUB_OUTPUT
           echo "short-hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
           echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
           echo "build-type=${BUILD_TYPE}" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
