@@ -132,10 +132,10 @@ Para validar que todos los secrets están configurados correctamente, ejecuta:
 timizaciones de Producción
 
 ### Build Nativo Optimizado
-- **Runners**: 8 cores para builds más rápidos
+- **Runners**: ubuntu-latest optimizado
 - **Cache**: GraalVM + Maven/Gradle + Docker layers
 - **Flags**: `-O2`, `--no-fallback`, `--gc=serial`
-- **Tiempo**: 20-25 min (vs 45-60 min estándar)
+- **Tiempo**: 25-30 min (vs 45-60 min estándar)
 
 ### Docker Optimizado
 - **Platform**: Solo linux/amd64 en producción
@@ -151,8 +151,8 @@ timizaciones de Producción
 
 | Pipeline | Desarrollo | Producción | PR |
 |----------|------------|------------|-----|
-| **Smart** | ~15 min | ~25 min | ~5 min |
-| **Express** | N/A | ~20 min | N/A |
+| **Smart** | ~15 min | ~30 min | ~5 min |
+| **Express** | N/A | ~25 min | N/A |
 | **Estándar** | ~25 min | ~45 min | ~10 min |
 
 ## 🎯 Cuándo usar cada pipeline
