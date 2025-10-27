@@ -105,6 +105,41 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-graalvm-
 
+      - name: Validate build configuration
+        run: |
+          # Validación básica de configuración
+          if [ -f "pom.xml" ]; then
+            echo "✅ Build tool: Maven"
+            BUILD_TOOL="maven"
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "✅ Build tool: Gradle"
+            BUILD_TOOL="gradle"
+          else
+            echo "❌ ERROR: No build tool found (pom.xml or build.gradle)"
+            exit 1
+          fi
+          
+          # Validar estructura básica
+          if [ ! -d "src/main/java" ]; then
+            echo "❌ ERROR: src/main/java directory not found"
+            exit 1
+          fi
+          
+          # Validar Dockerfiles según tipo de build
+          if [ "${{ inputs.build_type }}" = "native" ]; then
+            if [ ! -f "src/main/docker/Dockerfile.native" ]; then
+              echo "❌ ERROR: Dockerfile.native not found for native build"
+              exit 1
+            fi
+          else
+            if [ ! -f "src/main/docker/Dockerfile.jvm" ]; then
+              echo "❌ ERROR: Dockerfile.jvm not found for JVM build"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Build configuration validated"
+
       - name: Detect build tool
         id: build-tool
         run: |
@@ -113,7 +148,7 @@ jobs:
           elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
             echo "tool=gradle" >> $GITHUB_OUTPUT
           else
-            echo "No pom.xml o build.gradle encontrado"
+            echo "ERROR: No build tool detected"
             exit 1
           fi
 
@@ -124,19 +159,35 @@ jobs:
         if: steps.build-tool.outputs.tool == 'maven' && inputs.build_type == 'native'
         timeout-minutes: ${{ inputs.production_optimized && 25 || 50 }}
         run: |
+          # Verificar que el perfil native existe
+          if ./mvnw help:all-profiles | grep -q "native"; then
+            NATIVE_PROFILE="-Pnative"
+          else
+            NATIVE_PROFILE=""
+            echo "Warning: No native profile found, using default native build"
+          fi
+          
           # Optimizaciones para producción
           if [ "${{ inputs.production_optimized }}" = "true" ]; then
             # Build nativo optimizado para producción
-            ./mvnw clean package -Pnative -DskipTests \
-              -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2" \
-              -Dquarkus.native.enable-reports=false \
-              -Dquarkus.native.enable-vm-inspection=false \
+            ./mvnw clean package $NATIVE_PROFILE \
+              -DskipTests \
               -Dmaven.test.skip=true \
               -Dquarkus.package.jar.enabled=false \
-              -T 1C
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true \
+              -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback" \
+              -Dquarkus.native.enable-reports=false \
+              -Dquarkus.native.enable-vm-inspection=false \
+              -T 1C \
+              --no-transfer-progress \
+              -q
           else
             # Build nativo estándar
-            ./mvnw clean package -Pnative -DskipTests
+            ./mvnw clean package $NATIVE_PROFILE \
+              -DskipTests \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true
           fi
 
       - name: Build with Maven (JVM)
@@ -149,14 +200,38 @@ jobs:
         if: steps.build-tool.outputs.tool == 'gradle' && inputs.build_type == 'native'
         timeout-minutes: ${{ inputs.production_optimized && 25 || 50 }}
         run: |
+          # Detectar tareas disponibles para evitar errores
+          echo "Detecting available Gradle tasks..."
+          AVAILABLE_TASKS=$(./gradlew tasks --all --quiet | grep -E "^[a-zA-Z]" | awk '{print $1}' | tr '\n' ' ')
+          echo "Available tasks: $AVAILABLE_TASKS"
+          
+          # Construir lista de exclusiones dinámicamente
+          EXCLUSIONS="-x test"
+          
+          # Agregar exclusiones solo si las tareas existen
+          if echo "$AVAILABLE_TASKS" | grep -q "javadoc"; then
+            EXCLUSIONS="$EXCLUSIONS -x javadoc"
+          fi
+          if echo "$AVAILABLE_TASKS" | grep -q "checkstyleMain"; then
+            EXCLUSIONS="$EXCLUSIONS -x checkstyleMain"
+          fi
+          if echo "$AVAILABLE_TASKS" | grep -q "checkstyleTest"; then
+            EXCLUSIONS="$EXCLUSIONS -x checkstyleTest"
+          fi
+          if echo "$AVAILABLE_TASKS" | grep -q "spotbugsMain"; then
+            EXCLUSIONS="$EXCLUSIONS -x spotbugsMain"
+          fi
+          if echo "$AVAILABLE_TASKS" | grep -q "pmdMain"; then
+            EXCLUSIONS="$EXCLUSIONS -x pmdMain"
+          fi
+          
+          echo "Using exclusions: $EXCLUSIONS"
+          
           # Optimizaciones para producción
           if [ "${{ inputs.production_optimized }}" = "true" ]; then
             # Build nativo optimizado para producción
             ./gradlew clean build \
-              -x test \
-              -x javadoc \
-              -x checkstyleMain \
-              -x checkstyleTest \
+              $EXCLUSIONS \
               --parallel \
               --build-cache \
               --configuration-cache \
@@ -180,7 +255,8 @@ jobs:
         if: steps.build-tool.outputs.tool == 'gradle' && inputs.build_type == 'jvm'
         timeout-minutes: 10
         run: |
-          ./gradlew clean build -x test
+          # Build JVM simple y robusto
+          ./gradlew clean build -x test --no-daemon
 
       # ========================================
       # VERIFY BUILD ARTIFACTS

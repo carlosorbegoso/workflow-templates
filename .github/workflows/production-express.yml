@@ -114,9 +114,27 @@ jobs:
       - name: Ultra-fast Gradle build
         if: steps.build-tool.outputs.tool == 'gradle'
         run: |
+          # Detectar tareas disponibles
+          echo "Detecting available Gradle tasks..."
+          AVAILABLE_TASKS=$(./gradlew tasks --all --quiet | grep -E "^[a-zA-Z]" | awk '{print $1}' | tr '\n' ' ')
+          
+          # Construir exclusiones dinámicamente
+          EXCLUSIONS="-x test"
+          if echo "$AVAILABLE_TASKS" | grep -q "javadoc"; then
+            EXCLUSIONS="$EXCLUSIONS -x javadoc"
+          fi
+          if echo "$AVAILABLE_TASKS" | grep -q "checkstyleMain"; then
+            EXCLUSIONS="$EXCLUSIONS -x checkstyleMain"
+          fi
+          if echo "$AVAILABLE_TASKS" | grep -q "checkstyleTest"; then
+            EXCLUSIONS="$EXCLUSIONS -x checkstyleTest"
+          fi
+          
+          echo "Using exclusions: $EXCLUSIONS"
+          
           # Build nativo ultra-optimizado
           ./gradlew clean build \
-            -x test -x javadoc -x checkstyleMain -x checkstyleTest \
+            $EXCLUSIONS \
             --parallel --build-cache --configuration-cache \
             --no-daemon --quiet \
             -Dquarkus.package.jar.enabled=false \
@@ -124,7 +142,7 @@ jobs:
             -Dquarkus.native.container-build=true \
             -Dquarkus.native.enable-reports=false \
             -Dquarkus.native.enable-vm-inspection=false \
-            -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback,-H:-CheckToolchain"
+            -Dquarkus.native.additional-build-args="--gc=serial,-H:+UnlockExperimentalVMOptions,-H:+UseSerialGC,-O2,--no-fallback"
 
       # ========================================
       # DOCKER BUILD Y PUSH SIMULTÁNEO
