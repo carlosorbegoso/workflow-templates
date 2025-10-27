@@ -34,9 +34,35 @@ on:
         required: false
       DB_PASSWORD:
         required: false
+      DATABASE_URL:
+        required: false
       DEV_DB_USERNAME:
         required: false
       DEV_DB_PASSWORD:
+        required: false
+      DEV_DATABASE_URL:
+        required: false
+      
+      # JWT/Auth secrets
+      JWT_SECRET:
+        required: false
+      JWT_ISSUER:
+        required: false
+      
+      # Email/SMTP secrets
+      MAILER_FROM:
+        required: false
+      SMTP_HOST:
+        required: false
+      SMTP_PORT:
+        required: false
+      EMAIL_USERNAME:
+        required: false
+      EMAIL_PASSWORD:
+        required: false
+      
+      # CORS configuration
+      CORS_ORIGINS:
         required: false
       
       # Quality secrets
@@ -147,89 +173,60 @@ jobs:
       scan_dependencies: true
       scan_code: true
 
-  # Build nativo (solo para producción)
-  build-native:
-    name: Build Native Image
+  # Build y Push unificado
+  build-and-push:
+    name: Build & Push Image
     needs: [setup]
-    if: needs.setup.outputs.run_build == 'true' && needs.setup.outputs.is_production == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/build.yml@main
-
-  # Build JVM (solo para desarrollo)
-  build-jvm:
-    name: Build JVM Image
-    needs: [setup]
-    if: needs.setup.outputs.run_build == 'true' && needs.setup.outputs.is_development == 'true'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/build-jvm.yml@main
-
-  # Push nativo (solo para producción)
-  push-native:
-    name: Push Native Image
-    needs: [setup, build-native]
-    if: needs.build-native.result == 'success'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/push.yml@main
+    if: needs.setup.outputs.run_build == 'true'
+    uses: carlosorbegoso/workflow-templates/.github/workflows/build-and-push.yml@main
     with:
+      build_type: ${{ needs.setup.outputs.is_production == 'true' && 'native' || 'jvm' }}
       use_ghcr: true
       push_to_registry: true
     secrets:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
-  # Push JVM (solo para desarrollo)
-  push-jvm:
-    name: Push JVM Image
-    needs: [setup, build-jvm]
-    if: needs.build-jvm.result == 'success'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/push-jvm.yml@main
-    with:
-      use_ghcr: true
-      push_to_registry: true
-    secrets:
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_PAT: ${{ secrets.GHCR_PAT }}
-
-  # Deploy producción
-  deploy-production:
-    name: Deploy to Production
-    needs: [setup, push-native]
-    if: needs.setup.outputs.run_deploy == 'true' && needs.push-native.result == 'success'
+  # Deploy unificado
+  deploy:
+    name: Deploy Application
+    needs: [setup, build-and-push]
+    if: needs.setup.outputs.run_deploy == 'true' && needs.build-and-push.result == 'success'
     uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
     with:
-      image_version: ${{ needs.push-native.outputs.image-version }}
+      image_version: ${{ needs.build-and-push.outputs.image-version }}
+      environment: ${{ needs.setup.outputs.is_production == 'true' && 'production' || 'development' }}
       push_to_registry: true
     secrets:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      DB_USERNAME: ${{ secrets.DB_USERNAME }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_PAT: ${{ secrets.GHCR_PAT }}
-
-  # Deploy desarrollo
-  deploy-development:
-    name: Deploy to Development
-    needs: [setup, push-jvm]
-    if: needs.setup.outputs.run_deploy == 'true' && needs.push-jvm.result == 'success'
-    uses: carlosorbegoso/workflow-templates/.github/workflows/deploy.yml@main
-    with:
-      image_version: ${{ needs.push-jvm.outputs.image-version }}
-      push_to_registry: true
-    secrets:
-      # Usar secrets de desarrollo si están disponibles, sino usar producción
+      # Infraestructura
       SSH_HOST: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_SSH_HOST || secrets.SSH_HOST }}
       SSH_USER: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_SSH_USER || secrets.SSH_USER }}
       SSH_PRIVATE_KEY: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_SSH_PRIVATE_KEY || secrets.SSH_PRIVATE_KEY }}
       DEPLOY_PATH: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DEPLOY_PATH || secrets.DEPLOY_PATH }}
+      
+      # Base de datos
       DB_USERNAME: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DB_USERNAME || secrets.DB_USERNAME }}
       DB_PASSWORD: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DB_PASSWORD || secrets.DB_PASSWORD }}
+      DATABASE_URL: ${{ needs.setup.outputs.use_dev_secrets == 'true' && secrets.DEV_DATABASE_URL || secrets.DATABASE_URL }}
+      
+      # Aplicación
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      JWT_ISSUER: ${{ secrets.JWT_ISSUER }}
+      MAILER_FROM: ${{ secrets.MAILER_FROM }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+      
+      # Registry
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
   # Summary job
   summary:
     name: Pipeline Summary
-    needs: [setup, test, quality, security, build-native, build-jvm, push-native, push-jvm, deploy-production, deploy-development]
+    needs: [setup, test, quality, security, build-and-push, deploy]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -250,16 +247,12 @@ jobs:
           echo "- Tests: ${{ needs.setup.outputs.run_tests }}"
           echo "- Quality: ${{ needs.setup.outputs.run_quality }}"
           echo "- Security: ${{ needs.setup.outputs.run_security }}"
-          echo "- Build: ${{ needs.setup.outputs.run_build }}"
+          echo "- Build & Push: ${{ needs.setup.outputs.run_build }}"
           echo "- Deploy: ${{ needs.setup.outputs.run_deploy }}"
           echo ""
           echo "Results:"
           echo "- Tests: ${{ needs.test.result || 'skipped' }}"
           echo "- Quality: ${{ needs.quality.result || 'skipped' }}"
           echo "- Security: ${{ needs.security.result || 'skipped' }}"
-          echo "- Build Native: ${{ needs.build-native.result || 'skipped' }}"
-          echo "- Build JVM: ${{ needs.build-jvm.result || 'skipped' }}"
-          echo "- Push Native: ${{ needs.push-native.result || 'skipped' }}"
-          echo "- Push JVM: ${{ needs.push-jvm.result || 'skipped' }}"
-          echo "- Deploy Production: ${{ needs.deploy-production.result || 'skipped' }}"
-          echo "- Deploy Development: ${{ needs.deploy-development.result || 'skipped' }}"
+          echo "- Build & Push: ${{ needs.build-and-push.result || 'skipped' }}"
+          echo "- Deploy: ${{ needs.deploy.result || 'skipped' }}"
