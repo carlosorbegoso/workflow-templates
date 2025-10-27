@@ -1,0 +1,136 @@
+name: Build Native Image
+
+on:
+  workflow_call:
+    inputs:
+      production_optimized:
+        description: 'Enable production optimizations'
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      artifact-name:
+        description: 'Generated artifact name'
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+jobs:
+  build:
+    name: Build Native
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.production_optimized && 25 || 50 }}
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+
+      - name: Cache packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gradle/caches
+            ~/.cache/native-image
+          key: ${{ runner.os }}-native-${{ hashFiles('**/pom.xml', '**/build.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-native-
+
+      - name: Detect build tool
+        id: build-tool
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No build tool found"
+            exit 1
+          fi
+
+      - name: Build with Maven (Native)
+        if: steps.build-tool.outputs.tool == 'maven'
+        run: |
+          # Verificar perfil native
+          if ./mvnw help:all-profiles | grep -q "native"; then
+            NATIVE_PROFILE="-Pnative"
+          else
+            NATIVE_PROFILE=""
+          fi
+          
+          if [ "${{ inputs.production_optimized }}" = "true" ]; then
+            ./mvnw clean package $NATIVE_PROFILE \
+              -DskipTests \
+              -Dmaven.test.skip=true \
+              -Dquarkus.package.jar.enabled=false \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true \
+              -Dquarkus.native.additional-build-args="--gc=serial,-O2,--no-fallback" \
+              -T 1C --no-transfer-progress -q
+          else
+            ./mvnw clean package $NATIVE_PROFILE \
+              -DskipTests \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true
+          fi
+
+      - name: Build with Gradle (Native)
+        if: steps.build-tool.outputs.tool == 'gradle'
+        run: |
+          # Detectar tareas disponibles
+          AVAILABLE_TASKS=$(./gradlew tasks --all --quiet | grep -E "^[a-zA-Z]" | awk '{print $1}')
+          
+          EXCLUSIONS="-x test"
+          for task in "javadoc" "checkstyleMain" "checkstyleTest" "spotbugsMain" "pmdMain"; do
+            if echo "$AVAILABLE_TASKS" | grep -q "^${task}$"; then
+              EXCLUSIONS="$EXCLUSIONS -x $task"
+            fi
+          done
+          
+          if [ "${{ inputs.production_optimized }}" = "true" ]; then
+            ./gradlew clean build $EXCLUSIONS \
+              --parallel --build-cache --configuration-cache --no-daemon \
+              -Dquarkus.package.jar.enabled=false \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true \
+              -Dquarkus.native.additional-build-args="--gc=serial,-O2,--no-fallback"
+          else
+            ./gradlew clean build -x test \
+              -Dquarkus.package.jar.enabled=false \
+              -Dquarkus.native.enabled=true \
+              -Dquarkus.native.container-build=true \
+              -Dquarkus.native.additional-build-args="--gc=serial"
+          fi
+
+      - name: Verify and prepare artifact
+        id: artifact
+        run: |
+          RUNNER_FILE=$(find . -maxdepth 3 -type f -name '*-runner' -print -quit)
+          if [ -z "$RUNNER_FILE" ]; then
+            echo "ERROR: No native runner found"
+            exit 1
+          fi
+          
+          mkdir -p build-output
+          if [[ "$RUNNER_FILE" != build-output/* ]]; then
+            cp -v "$RUNNER_FILE" build-output/
+          fi
+          
+          PROJECT_NAME=$(basename ${{ github.repository }})
+          ARTIFACT_NAME="${PROJECT_NAME}-native-runner"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload native runner
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: build-output/
+          retention-days: 1

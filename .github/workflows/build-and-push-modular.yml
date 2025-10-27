@@ -1,0 +1,67 @@
+name: Modular Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      build_type:
+        description: 'Type of build: native or jvm'
+        required: false
+        default: 'jvm'
+        type: string
+      push_to_registry:
+        description: 'Whether to push to registry'
+        required: false
+        default: false
+        type: boolean
+      use_ghcr:
+        description: 'Use GitHub Container Registry'
+        required: false
+        default: false
+        type: boolean
+      production_optimized:
+        description: 'Enable production optimizations'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      GHCR_USERNAME:
+        required: false
+      GHCR_PAT:
+        required: false
+    outputs:
+      image-version:
+        description: 'Generated image version'
+        value: ${{ jobs.docker-build.outputs.image-version }}
+      docker-image:
+        description: 'Full Docker image URI'
+        value: ${{ jobs.docker-build.outputs.docker-image }}
+
+jobs:
+  # Build nativo
+  native-build:
+    name: Native Build
+    if: inputs.build_type == 'native'
+    uses: ./.github/workflows/build-native.yml
+    with:
+      production_optimized: ${{ inputs.production_optimized }}
+
+  # Build JVM
+  jvm-build:
+    name: JVM Build
+    if: inputs.build_type == 'jvm'
+    uses: ./.github/workflows/build-jvm-optimized.yml
+
+  # Docker build y push
+  docker-build:
+    name: Docker Build & Push
+    needs: [native-build, jvm-build]
+    if: always() && (needs.native-build.result == 'success' || needs.jvm-build.result == 'success')
+    uses: ./.github/workflows/docker-build-push.yml
+    with:
+      build_type: ${{ inputs.build_type }}
+      artifact_name: ${{ inputs.build_type == 'native' && needs.native-build.outputs.artifact-name || needs.jvm-build.outputs.artifact-name }}
+      push_to_registry: ${{ inputs.push_to_registry }}
+      use_ghcr: ${{ inputs.use_ghcr }}
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
