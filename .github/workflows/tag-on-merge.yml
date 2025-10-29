@@ -54,10 +54,30 @@ jobs:
 
       - name: Create GitHub release (optional)
         if: always()
-        uses: actions/create-release@v1
-        with:
-          tag_name: ${{ steps.calc_tag.outputs.new_tag }}
-          release_name: ${{ steps.calc_tag.outputs.new_tag }}
-          body: "Automated tag created by workflow on push to main."
+        run: |
+          set -euo pipefail
+          tag="${{ steps.calc_tag.outputs.new_tag }}"
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases"
+
+          echo "Creating release for $tag"
+
+          # Create release via REST API. Use GITHUB_TOKEN for authentication.
+          # The API returns 201 on success, 422 if a release for the tag already exists.
+          http_code=$(curl -s -o /tmp/release_resp.json -w "%{http_code}" -X POST "$api" \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"$tag\",\"name\":\"$tag\",\"body\":\"Automated tag created by workflow on push to main.\"}")
+
+          if [ "$http_code" = "201" ]; then
+            echo "Release created successfully."
+            cat /tmp/release_resp.json
+          elif [ "$http_code" = "422" ]; then
+            echo "Release already exists or validation failed (HTTP $http_code). Response:" 
+            cat /tmp/release_resp.json
+          else
+            echo "Unexpected response (HTTP $http_code). Response:"
+            cat /tmp/release_resp.json
+            exit 1
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

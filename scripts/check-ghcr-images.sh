@@ -1,34 +1,34 @@
 #!/bin/bash
 
-# Script para verificar imágenes disponibles en GHCR
-# Uso: ./check-ghcr-images.sh [project-name] [owner]
+# Script to check available images on GHCR
+# Usage: ./check-ghcr-images.sh [project-name] [owner]
 
 PROJECT_NAME=${1:-yape-hub}
 OWNER=${2:-carlosorbegoso}
 
-echo "=== Verificando imágenes en GHCR ==="
-echo "Proyecto: $PROJECT_NAME"
+echo "=== Checking images on GHCR ==="
+echo "Project: $PROJECT_NAME"
 echo "Owner: $OWNER"
 echo "Registry: ghcr.io"
 echo ""
 
 # Verificar si Docker está disponible
 if ! command -v docker &> /dev/null; then
-    echo "ERROR: Docker no está instalado o no está en el PATH"
+    echo "ERROR: Docker is not installed or not on PATH"
     exit 1
 fi
 
 # Autenticarse con GHCR si hay credenciales en variables de entorno
 if [ -n "$GHCR_PAT" ] && [ -n "$GHCR_USERNAME" ]; then
-    echo "🔐 Autenticando con GHCR usando variables de entorno..."
+    echo "🔐 Authenticating with GHCR using environment variables..."
     echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 elif [ -n "$GITHUB_TOKEN" ]; then
-    echo "🔐 Autenticando con GHCR usando GITHUB_TOKEN..."
+    echo "🔐 Authenticating with GHCR using GITHUB_TOKEN..."
     echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$USER" --password-stdin
 else
-    echo "⚠️  No se encontraron credenciales de GHCR"
-    echo "   Puedes exportar GHCR_USERNAME y GHCR_PAT para autenticarte"
-    echo "   O usar GITHUB_TOKEN si tienes permisos"
+    echo "⚠️  No GHCR credentials found"
+    echo "   You can export GHCR_USERNAME and GHCR_PAT to authenticate"
+    echo "   Or use GITHUB_TOKEN if you have permissions"
 fi
 
 # Tags comunes a verificar
@@ -46,13 +46,13 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     COMMON_TAGS+=("main-${SHORT_HASH}" "${BRANCH}-${SHORT_HASH}")
 fi
 
-echo "Verificando tags comunes:"
+echo "Checking common tags:"
 for tag in "${COMMON_TAGS[@]}"; do
     IMAGE="ghcr.io/${OWNER}/${PROJECT_NAME}:${tag}"
     echo -n "Checking $IMAGE ... "
     
     if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
-        echo "✅ EXISTS"
+    echo "✅ EXISTS"
         
         # Obtener información adicional
         SIZE=$(docker manifest inspect "$IMAGE" | jq -r '.config.size // "unknown"' 2>/dev/null || echo "unknown")
@@ -63,12 +63,12 @@ for tag in "${COMMON_TAGS[@]}"; do
 done
 
 echo ""
-echo "=== Imágenes locales relacionadas ==="
-docker images | grep "$PROJECT_NAME" || echo "No hay imágenes locales"
+echo "=== Related local images ==="
+docker images | grep "$PROJECT_NAME" || echo "No local images found"
 
 echo ""
-echo "=== Recomendaciones ==="
-echo "1. Si no hay imágenes, ejecuta el workflow de build primero"
-echo "2. Verifica que GHCR_USERNAME y GHCR_PAT estén configurados"
-echo "3. Asegúrate de que el repositorio tenga permisos para packages"
-echo "4. Usa el tag que aparece como ✅ EXISTS en tu docker-compose.yml"
+echo "=== Recommendations ==="
+echo "1. If no images are found, run the build workflow first"
+echo "2. Ensure GHCR_USERNAME and GHCR_PAT are set"
+echo "3. Ensure the repository has permission to access packages"
+echo "4. Use the tag marked as ✅ EXISTS in your docker-compose.yml"
